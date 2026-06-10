@@ -10,13 +10,16 @@ export type DataSetErrorCode =
   | "UNKNOWN_PROVIDER";
 
 export class DataSetError extends Error {
+  override readonly cause?: unknown;
+
   constructor(
     readonly code: DataSetErrorCode,
     message: string,
-    readonly cause?: unknown,
+    cause?: unknown,
   ) {
     super(`${code}: ${message}`);
     this.name = "DataSetError";
+    this.cause = cause;
   }
 
   get recoverable(): boolean {

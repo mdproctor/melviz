@@ -27,7 +27,8 @@ export type CellValue =
   | { readonly type: ColumnType.TEXT; readonly value: string }
   | { readonly type: ColumnType.NUMBER; readonly value: number }
   | { readonly type: ColumnType.DATE; readonly value: Date }
-  | { readonly type: ColumnType.LABEL; readonly value: string };
+  | { readonly type: ColumnType.LABEL; readonly value: string }
+  | { readonly type: "NULL" };
 
 export interface TypedDataSet {
   readonly columns: readonly Column[];
@@ -44,5 +45,5 @@ export interface TypedRow {
 
 export interface DataSet {
   readonly columns: readonly Column[];
-  readonly data: readonly (readonly string[])[];
+  readonly data: readonly (readonly (string | null)[])[];
 }

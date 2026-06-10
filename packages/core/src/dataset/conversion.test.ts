@@ -114,6 +114,48 @@ describe("toTypedDataSet", () => {
     const result = toTypedDataSet(ds);
     expect(Object.isFrozen(result.rows[0]!.cells)).toBe(true);
   });
+
+  it("produces NULL cell for undefined raw value (short row)", () => {
+    const ds: DataSet = {
+      columns: [
+        col("a", "A", ColumnType.TEXT),
+        col("b", "B", ColumnType.NUMBER),
+      ],
+      data: [["hello"]],
+    };
+    const result = toTypedDataSet(ds);
+    const cell = result.rows[0]!.cell("b" as ColumnId);
+    expect(cell.type).toBe("NULL");
+  });
+
+  it("produces NULL cell for explicit null in data array", () => {
+    const ds: DataSet = {
+      columns: [col("x", "X", ColumnType.TEXT)],
+      data: [[null]],
+    };
+    const result = toTypedDataSet(ds);
+    expect(result.rows[0]!.cell("x" as ColumnId).type).toBe("NULL");
+  });
+
+  it("preserves empty string as valid TEXT value, not null", () => {
+    const ds: DataSet = {
+      columns: [col("x", "X", ColumnType.TEXT)],
+      data: [[""]],
+    };
+    const result = toTypedDataSet(ds);
+    const cell = result.rows[0]!.cell("x" as ColumnId);
+    expect(cell.type).toBe(ColumnType.TEXT);
+    expect((cell as { value: string }).value).toBe("");
+  });
+
+  it("text() throws on NULL cell", () => {
+    const ds: DataSet = {
+      columns: [col("x", "X", ColumnType.TEXT)],
+      data: [[null]],
+    };
+    const result = toTypedDataSet(ds);
+    expect(() => result.rows[0]!.text("x" as ColumnId)).toThrow();
+  });
 });
 
 describe("toWireDataSet", () => {
@@ -153,5 +195,30 @@ describe("toWireDataSet", () => {
 
     const wire = toWireDataSet(toTypedDataSet(ds));
     expect(wire.data).toEqual(ds.data);
+  });
+
+  it("serializes NULL cell as null in wire format", () => {
+    const ds: DataSet = {
+      columns: [col("x", "X", ColumnType.TEXT)],
+      data: [[null]],
+    };
+    const typed = toTypedDataSet(ds);
+    const wire = toWireDataSet(typed);
+    expect(wire.data[0]![0]).toBeNull();
+  });
+
+  it("round-trips null cells through toTypedDataSet → toWireDataSet", () => {
+    const ds: DataSet = {
+      columns: [
+        col("a", "A", ColumnType.TEXT),
+        col("b", "B", ColumnType.NUMBER),
+      ],
+      data: [["hello", null], [null, "42"]],
+    };
+    const wire = toWireDataSet(toTypedDataSet(ds));
+    expect(wire.data[0]![0]).toBe("hello");
+    expect(wire.data[0]![1]).toBeNull();
+    expect(wire.data[1]![0]).toBeNull();
+    expect(wire.data[1]![1]).toBe("42");
   });
 });

@@ -99,8 +99,12 @@ export function toTypedDataSet(ds: DataSet): TypedDataSet {
 
     for (let colIdx = 0; colIdx < ds.columns.length; colIdx++) {
       const column = ds.columns[colIdx]!;
-      const rawValue = rawRow[colIdx] ?? "";
-      cells.push(parseCell(rawValue, column, rowIdx));
+      const rawValue = rawRow[colIdx];
+      if (rawValue === undefined || rawValue === null) {
+        cells.push({ type: "NULL" as const });
+      } else {
+        cells.push(parseCell(rawValue, column, rowIdx));
+      }
     }
 
     rows.push(createTypedRow(cells, ds.columns));
@@ -109,7 +113,7 @@ export function toTypedDataSet(ds: DataSet): TypedDataSet {
   return { columns: ds.columns, rows };
 }
 
-function cellToString(cell: CellValue): string {
+function cellToString(cell: CellValue): string | null {
   switch (cell.type) {
     case ColumnType.TEXT:
     case ColumnType.LABEL:
@@ -118,14 +122,16 @@ function cellToString(cell: CellValue): string {
       return String(cell.value);
     case ColumnType.DATE:
       return cell.value.toISOString();
+    case "NULL":
+      return null;
   }
 }
 
 export function toWireDataSet(ds: TypedDataSet): DataSet {
-  const data: string[][] = [];
+  const data: (string | null)[][] = [];
 
   for (const row of ds.rows) {
-    const rawRow: string[] = [];
+    const rawRow: (string | null)[] = [];
     for (const cell of row.cells) {
       rawRow.push(cellToString(cell));
     }
