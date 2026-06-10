@@ -2,237 +2,169 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Type
+
+type: custom
+
 ## Build Commands
 
-This is a hybrid Java/Maven + JavaScript/Yarn monorepo. Build processes are separated by subsystem.
+This is a hybrid Java/Maven + JavaScript/Yarn monorepo. Build order matters: packages → core → components → webapp.
 
-### Java Core (GWT-based webapp)
+### Full Build
+
 ```bash
-# Build all Java modules (from ./core directory)
-cd core && mvn clean install
+# Install dependencies and build everything in correct order (development)
+yarn install && yarn build
 
-# Build without tests
-cd core && mvn clean install -DskipTests
-
-# Run tests
-cd core && mvn test
+# Production build — includes full GWT compilation and examples gallery
+yarn build:prod
 ```
 
-The compiled web application will be in `core/melviz-webapp-parent/melviz-webapp/target/melviz-webapp/`.
+`build:prod` differs from `build` in two ways: it runs `mvn -f core/pom.xml clean install -Dfull` (no `-DskipTests`) and also builds the `examples/` gallery.
 
-### JavaScript Components and Webapp
+### Targeted Builds
 
-**Complete Build (Recommended for Clean Environments)**:
 ```bash
-# From repository root - installs dependencies and builds everything in correct order
-yarn install
-yarn build
-```
-
-This single command handles the entire build process:
-1. Builds shared packages (`@melviz/component-api`, `@melviz/component-echarts-base`, `@melviz/component-dev`)
-2. Builds Java core with Maven
-3. Builds all React components
-4. Assembles final webapp bundle
-
-**Individual Build Commands**:
-```bash
-# Build only shared packages
+# Shared TypeScript packages only
 yarn build:packages
 
-# Build only Java core
-yarn build:core
+# Java/GWT core only (skips tests, includes sources profile)
+mvn -f core/pom.xml clean install -DskipTests -Psources
 
-# Build only React components (requires packages to be built first)
+# Run Java tests only
+mvn -f core/pom.xml test
+
+# React components only (packages must be built first)
 yarn build:components
 
-# Build only final webapp (requires everything else to be built first)
+# Final webapp assembly only
 yarn build:webapp
+
+# Examples gallery only (webapp must be built first)
+yarn build:examples
 ```
 
-Build specific component:
+**Do not use `cd core && mvn ...`** — use `mvn -f core/pom.xml ...` instead. `cd` before subsequent commands triggers permission checks that override the allow list.
+
+### Per-Component Builds
+
 ```bash
-cd components/melviz-component-echarts
-yarn build  # Runs tests, cleans dist, then webpack
+# Build a specific component
+yarn workspace @melviz/component-echarts run build
+
+# Run component tests
+yarn workspace @melviz/component-echarts run test
+
+# Run specific test file
+yarn workspace @melviz/component-echarts run test -- <test-file-pattern>
+
+# Dev mode with hot reload (port 9001)
+yarn workspace @melviz/component-echarts run start
 ```
 
-### Development Mode
+### Examples Dev Server
 
-Run a component in dev mode with hot reload:
 ```bash
-cd components/melviz-component-echarts
-yarn start  # Starts webpack-dev-server on port 9001
-```
+# Serve examples gallery (port 8080) — requires webapp to be built first
+yarn workspace @melviz/examples run serve
 
-### Testing
-
-Java tests:
-```bash
-cd core && mvn test
-```
-
-JavaScript component tests (uses Jest with ts-jest):
-```bash
-cd components/melviz-component-echarts
-yarn test  # Runs jest --silent --verbose --passWithNoTests
-```
-
-Run specific test:
-```bash
-cd components/melviz-component-echarts
-yarn test -- <test-file-pattern>
+# Dev mode with file watching
+yarn workspace @melviz/examples run dev
 ```
 
 ## Architecture Overview
 
 ### Monorepo Structure
 
-Melviz is organized as a monorepo with Yarn workspaces:
+- **`core/`** — Java/Maven GWT webapp; compiles Java to JavaScript
+- **`packages/`** — Shared TypeScript libraries (`@melviz/component-api`, `@melviz/component-echarts-base`, `@melviz/component-dev`, `webpack-base`, `tsconfig`)
+- **`components/`** — Independent React microfrontend visualization components
+- **`webapp/`** — Webpack orchestrator; copies GWT output + component bundles into `dist/`
+- **`examples/`** — Interactive dashboard examples gallery; depends on `@melviz/webapp`
 
-- **`core/`** - Java/Maven-based backend using GWT (Google Web Toolkit) to compile Java to JavaScript
-- **`packages/`** - Shared TypeScript libraries and build tooling
-- **`components/`** - Independent React-based microfrontend visualization components
-- **`webapp/`** - Webpack orchestrator that assembles the final application
+### Java Core (GWT + Errai CDI)
 
-### Hybrid Build System
+The Java core uses **GWT** to compile Java to JavaScript and **Errai** for CDI-style dependency injection on the client. Key modules:
 
-The build system combines two ecosystems:
+- `melviz-base/melviz-dataset` — Core `DataSet` model, `DataSetManager`, `DataSetOpEngine` (filtering/grouping)
+- `melviz-base/melviz-json` — JSON utility layer
+- `melviz-shared/melviz-displayer-api` — `DisplayerSettings` and chart settings builders
+- `melviz-shared/melviz-navigation-api` — `NavTree` for page navigation structure
+- `melviz-client/melviz-displayer-client` — Abstract displayer framework and dataset lookup logic
+- `melviz-client/melviz-renderers/melviz-renderer-default` — Table, selector, metric displayers
+- `melviz-client/melviz-renderers/melviz-renderer-echarts` — ECharts displayer bridge
+- `melviz-webapp-parent/melviz-webapp-shared` — JSON marshallers and `RuntimeModel` (the wire format carrying `NavTree` + `LayoutTemplate` list + dataset definitions)
+- `melviz-webapp-parent/melviz-webapp` — `RuntimeEntryPoint` (GWT `@EntryPoint`), `Router`, `PlaceManager`, `RuntimeClientLoader`
 
-1. **Java/GWT Side**: Maven builds Java code in `core/`, compiling it to JavaScript via GWT. Uses Java 17.
-2. **JavaScript Side**: Yarn workspaces manage TypeScript/React components, shared packages, and final webapp assembly.
-3. **Integration**: The `webapp/` webpack build copies the GWT-compiled core and all component bundles into a unified `dist/` directory.
+The GWT entry point (`RuntimeEntryPoint`) initialises the Errai IoC container, injects js-yaml, then calls `Router.doRoute()` to determine which screen to show based on `setup.js` configuration and `postMessage` content.
 
 ### Microfrontend Component Architecture
 
-Each component in `components/` is a self-contained React microfrontend that communicates with the core via the Component API.
+Each React component in `components/` runs in an `<iframe>` and communicates with the GWT core through `window.postMessage`. The `@melviz/component-api` package provides the TypeScript bridge.
 
-**Component Lifecycle Pattern**:
+**Component lifecycle:**
 ```typescript
-// 1. Component gets controller from ComponentApi
-const api = new ComponentApi();
-const controller = api.getComponentController();
-
-// 2. Register dataset handler
-controller.setOnDataSet((dataset, params) => {
-  // Transform dataset and update visualization
-});
-
-// 3. Register initialization handler
-controller.setOnInit((params) => {
-  // Initialize with configuration
-});
-
-// 4. Signal ready
-controller.ready();
-
-// 5. Send filters back to core
-controller.filter(filterRequest);
+const controller = new ComponentApi().getComponentController();
+controller.setOnInit((params) => { /* configure from params */ });
+controller.setOnDataSet((dataset, params) => { /* render */ });
+controller.ready();                         // tells core the component is ready
+controller.filter(filterRequest);           // send filter back to core
 ```
 
-**Key Interface (`@melviz/component-api`)**:
-- `ComponentController` - Manages component lifecycle and communication
-- `ComponentBus` - Message bus for inter-component communication
-- `DataSet` - Data structure passed from core to components
-- `FilterRequest` - Filter queries sent from components back to core
-- `FunctionCallRequest` - Backend function calls
+**Registered components** (copied into `webapp/dist/melviz/component/<name>/` by webpack):
+- `echarts` — Apache ECharts charts
+- `llm-prompter` — LLM prompt engineering UI
+- `svg-heatmap` — SVG-based heatmaps
+
+> Note: `melviz-component-map` exists in `components/` but is **not** registered in `webapp/webpack.config.js` and is not bundled into the webapp.
 
 ### Data Flow
 
 ```
-YAML Definition → Java Core (GWT) → Dataset Processing → Component API → React Components
-                                        ↑                                    ↓
-                                        └────────── Filters/Events ──────────┘
+setup.js / postMessage YAML
+        ↓
+  RuntimeClientLoader  (parses YAML via js-yaml, builds RuntimeModel)
+        ↓
+  DataSetOpEngine      (applies JSONata transformations, filters, groups)
+        ↓
+  DisplayerSettings    (maps YAML config to displayer properties)
+        ↓
+  ExternalComponentDisplayer  (serialises DataSet → postMessage → iframe)
+        ↓
+  React Component (ComponentController.setOnDataSet callback)
+        ↓
+  controller.filter()  →  back to DataSetOpEngine
 ```
 
-1. **Java Core** (`core/melviz-webapp-shared`, `core/melviz-dataset/`, etc.):
-   - Parses YAML dashboard definitions
-   - Loads data from JSON/CSV/metrics sources
-   - Applies JSONata transformations
-   - Manages filter state
-   - Compiled to JavaScript via GWT
+### YAML Dashboard Format
 
-2. **Component API** (`packages/melviz-component-api`):
-   - TypeScript bridge between GWT core and React components
-   - Uses message bus pattern for async communication
-   - Type-safe interfaces ensure contract compliance
+Dashboards are YAML documents with `pages` → `components` structure. The webapp accepts them via:
 
-3. **React Components** (`components/*/`):
-   - Pure presentation/visualization logic
-   - Receive datasets via `setOnDataSet` callback
-   - Send filters back via `controller.filter()`
-   - Independently bundled and deployed
-
-### Module Organization
-
-**Core Java Modules** (`core/`):
-- `melviz-base/` - Foundational modules (dataset, JSON handling)
-- `melviz-shared/` - Shared API contracts (displayer, navigation, services)
-- `melviz-client/` - GWT-compilable client code (UI components, editors, renderers)
-- `melviz-webapp-parent/melviz-webapp/` - Main web application assembly (produces WAR)
-
-**Shared Packages** (`packages/`):
-- `melviz-component-api` - Component controller and communication interfaces
-- `melviz-component-dev` - Development utilities for component testing
-- `webpack-base` - Common webpack configuration with TypeScript loader
-- `tsconfig` - Shared TypeScript configuration
-
-**Available Components** (`components/`):
-- `melviz-component-echarts` - Apache ECharts visualizations
-- `melviz-component-echarts-base` - Reusable ECharts wrapper
-- `melviz-component-llm-prompter` - LLM prompt engineering UI
-- `melviz-component-map` - Geographic map visualizations
-- `melviz-component-svg-heatmap` - SVG-based heatmaps
-
-### Adding a New Component
-
-1. Create new directory in `components/melviz-component-<name>/`
-2. Add `package.json` with dependency on `@melviz/component-api`
-3. Create `src/index.tsx` with ComponentController integration
-4. Add webpack configuration (can extend `webpack-base`)
-5. Register component in `webapp/package.json` devDependencies
-6. Update `webapp/webpack.config.js` to copy component bundle
-7. Build with `yarn build` - output goes to `dist/index.js`
-
-### Deployment
-
-The final artifact is a single directory (`webapp/dist/`) containing:
-- GWT-compiled Java core (from `core/melviz-webapp/target/`)
-- All component bundles (from `components/*/dist/`)
-- Static assets and HTML entry points
-
-This can be deployed to any static web server or GitHub Pages.
-
-## Working with YAML Dashboards
-
-Melviz renders dashboards defined in YAML. The application can receive content dynamically via `postMessage`:
+1. **`setup.js`** — configure `melviz.dashboards` array and optional `melviz.samplesUrl` for static deployments
+2. **`postMessage`** — send YAML string to `window` for dynamic embedding
 
 ```javascript
 window.postMessage(`pages:
   - components:
-    - markdown: "# Hello World!"
+    - markdown: "# Hello"
 `, null)
 ```
 
-Alternatively, use `setup.js` to configure static dashboards that load on startup.
+The `melviz.mode` can be `"EDITOR"` (live editing) or `"CLIENT"` (readonly rendering).
+
+### Runtime Modes
+
+`MelvizRuntimeMode` (in `melviz-webapp-shared`):
+- **`CLIENT`** — loads dashboards from configured YAML files; no editing
+- **`EDITOR`** — enables the layout editor for authoring dashboards
 
 ## Key Technologies
 
-- **Java**: JDK 17 (note: core/README.md mentions Java 21 as requirement, but pom.xml uses 17)
-- **Maven**: Build orchestration for Java modules
-- **GWT (Google Web Toolkit)**: Compiles Java to JavaScript for client-side execution
-- **Yarn**: v4.10.3 for workspace management
-- **TypeScript**: 4.6.2 for type-safe component development
-- **React**: 17.0.2 for component UI
-- **Webpack**: 5.x for module bundling
-- **Jest**: Testing framework with ts-jest for TypeScript
-- **Apache ECharts**: Visualization library used by echarts component
-- **JSONata**: Data transformation language for dataset processing
-
-## File References
-
-When navigating the codebase:
-- Component implementations: [components/](components/)
-- Shared APIs: [packages/melviz-component-api/](packages/melviz-component-api/)
-- Java core: [core/](core/)
-- Final webapp assembly: [webapp/](webapp/)
-- Build configs: [webpack.config.js files in each package]
+- **Java 17** / **Maven** — core build (note: `core/README.md` says Java 21 but `pom.xml` targets 17)
+- **GWT** — compiles Java client code to JavaScript
+- **Errai** — CDI-style IoC and marshalling for GWT client
+- **Yarn 4.10.3** with workspaces
+- **TypeScript 4.6.2** / **React 17** / **Webpack 5**
+- **Jest + ts-jest** — component unit tests
+- **Apache ECharts** — charting library
+- **JSONata** — data transformation DSL used inside the GWT core
