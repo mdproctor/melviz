@@ -1,0 +1,205 @@
+import type { CellValue } from "./types.js";
+import { ColumnType } from "./types.js";
+import type { Aggregation } from "./group.js";
+
+export function computeAggregation(
+  fn: Aggregation,
+  values: readonly CellValue[],
+): CellValue {
+  switch (fn.fn) {
+    case "COUNT":
+      return { type: ColumnType.NUMBER, value: values.length };
+
+    case "DISTINCT":
+      return countDistinct(values);
+
+    case "SUM":
+      return sumValues(values);
+
+    case "AVERAGE":
+      return averageValues(values);
+
+    case "MEDIAN":
+      return medianValues(values);
+
+    case "MIN":
+      return minValue(values);
+
+    case "MAX":
+      return maxValue(values);
+
+    case "JOIN":
+      return joinValues(values, fn.separator);
+  }
+}
+
+function countDistinct(values: readonly CellValue[]): CellValue {
+  if (values.length === 0) {
+    return { type: ColumnType.NUMBER, value: 0 };
+  }
+
+  const seen = new Set<string>();
+  for (const val of values) {
+    const key = cellValueKey(val);
+    seen.add(key);
+  }
+
+  return { type: ColumnType.NUMBER, value: seen.size };
+}
+
+function cellValueKey(val: CellValue): string {
+  if (val.type === "NULL") {
+    return "NULL";
+  }
+  if (val.type === ColumnType.NUMBER) {
+    return `NUM:${val.value}`;
+  }
+  if (val.type === ColumnType.DATE) {
+    return `DATE:${val.value.getTime()}`;
+  }
+  if (val.type === ColumnType.TEXT) {
+    return `TEXT:${val.value}`;
+  }
+  if (val.type === ColumnType.LABEL) {
+    return `LABEL:${val.value}`;
+  }
+  return "UNKNOWN";
+}
+
+function sumValues(values: readonly CellValue[]): CellValue {
+  let sum = 0;
+  for (const val of values) {
+    if (val.type === ColumnType.NUMBER) {
+      sum += val.value;
+    }
+  }
+  return { type: ColumnType.NUMBER, value: sum };
+}
+
+function averageValues(values: readonly CellValue[]): CellValue {
+  let sum = 0;
+  let count = 0;
+  for (const val of values) {
+    if (val.type === ColumnType.NUMBER) {
+      sum += val.value;
+      count++;
+    }
+  }
+
+  if (count === 0) {
+    return { type: "NULL" };
+  }
+
+  return { type: ColumnType.NUMBER, value: sum / count };
+}
+
+function medianValues(values: readonly CellValue[]): CellValue {
+  const numbers: number[] = [];
+  for (const val of values) {
+    if (val.type === ColumnType.NUMBER) {
+      numbers.push(val.value);
+    }
+  }
+
+  if (numbers.length === 0) {
+    return { type: "NULL" };
+  }
+
+  numbers.sort((a, b) => a - b);
+
+  if (numbers.length % 2 === 1) {
+    // Odd count: return middle element
+    const mid = Math.floor(numbers.length / 2);
+    return { type: ColumnType.NUMBER, value: numbers[mid]! };
+  } else {
+    // Even count: return average of two middle elements
+    const mid2 = numbers.length / 2;
+    const mid1 = mid2 - 1;
+    return { type: ColumnType.NUMBER, value: (numbers[mid1]! + numbers[mid2]!) / 2 };
+  }
+}
+
+function minValue(values: readonly CellValue[]): CellValue {
+  let min: CellValue | undefined;
+
+  for (const val of values) {
+    if (val.type === "NULL") {
+      continue;
+    }
+
+    if (min === undefined) {
+      min = val;
+      continue;
+    }
+
+    if (compareValues(val, min) < 0) {
+      min = val;
+    }
+  }
+
+  return min ?? { type: "NULL" };
+}
+
+function maxValue(values: readonly CellValue[]): CellValue {
+  let max: CellValue | undefined;
+
+  for (const val of values) {
+    if (val.type === "NULL") {
+      continue;
+    }
+
+    if (max === undefined) {
+      max = val;
+      continue;
+    }
+
+    if (compareValues(val, max) > 0) {
+      max = val;
+    }
+  }
+
+  return max ?? { type: "NULL" };
+}
+
+function compareValues(a: CellValue, b: CellValue): number {
+  if (a.type === "NULL" || b.type === "NULL") {
+    throw new Error("Cannot compare NULL values");
+  }
+
+  if (a.type === ColumnType.NUMBER && b.type === ColumnType.NUMBER) {
+    return a.value - b.value;
+  }
+
+  if (a.type === ColumnType.DATE && b.type === ColumnType.DATE) {
+    return a.value.getTime() - b.value.getTime();
+  }
+
+  if (
+    (a.type === ColumnType.TEXT || a.type === ColumnType.LABEL) &&
+    (b.type === ColumnType.TEXT || b.type === ColumnType.LABEL)
+  ) {
+    return a.value.localeCompare(b.value);
+  }
+
+  throw new Error(`Cannot compare values of types ${a.type} and ${b.type}`);
+}
+
+function joinValues(values: readonly CellValue[], separator: string): CellValue {
+  const parts: string[] = [];
+
+  for (const val of values) {
+    if (val.type === "NULL") {
+      continue;
+    }
+
+    if (val.type === ColumnType.NUMBER) {
+      parts.push(String(val.value));
+    } else if (val.type === ColumnType.DATE) {
+      parts.push(val.value.toISOString());
+    } else if (val.type === ColumnType.TEXT || val.type === ColumnType.LABEL) {
+      parts.push(val.value);
+    }
+  }
+
+  return { type: ColumnType.TEXT, value: parts.join(separator) };
+}
