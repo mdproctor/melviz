@@ -25,6 +25,7 @@ Key decisions:
 - **MIN/MAX restricted to NUMBER columns:** `AggregateFunctionType._numericOnly` incorrectly includes MIN and MAX. Finding the earliest date (`MIN` on DATE) or lexicographic minimum (`MIN` on LABEL/TEXT) are valid operations. The TypeScript model corrects this by placing MIN/MAX in `UniversalAggregation`.
 - **Rounding in aggregation:** Java's `AbstractFunction.round(value, 2)` applies 2-decimal rounding inside SUM, AVERAGE, MEDIAN, MIN, and MAX — but not COUNT or DISTINCT. Rounding MIN/MAX is lossy (the result may not exist in the input data). Rounding SUM loses precision for downstream consumers. Aggregation should compute exact results; display rounding belongs in the formatter layer.
 - **Silent group-op discard:** Java's engine silently drops a second GroupOp when the first has no interval selection and `join` is false (returns false from `group()`, no error). The TypeScript engine treats this as an error.
+- **TEXT columns forbidden from grouping:** Java throws `'text columns no grouping'` for TEXT columns via `ClientIntervalBuilderLocator`. The TypeScript model removes this restriction — TEXT is structurally identical to LABEL for grouping purposes. The LABEL/TEXT distinction affects column semantics (LABEL = categorical, TEXT = free-form), not whether grouping is permitted.
 
 ### Java dead code not mapped
 
@@ -33,6 +34,8 @@ Key decisions:
 ---
 
 ## 2. Type Foundation — Aggregation and Result Columns
+
+`sourceId` — the column in the input dataset being read. `columnId` — the column in the output dataset being produced. These may differ when a column is renamed in the output (e.g., `sourceId: "revenue"`, `columnId: "total_revenue"`).
 
 ### Aggregation Functions
 
@@ -98,7 +101,7 @@ type GroupStrategy =
   | { readonly mode: "distinct" }
   | { readonly mode: "fixedCalendar"; readonly unit: FixedCalendarUnit }
   | { readonly mode: "dynamicRange"; readonly preferredUnit?: DateIntervalType }
-  | { readonly mode: "dynamic" };
+  | { readonly mode: "dynamic"; readonly preferredUnit?: DateIntervalType };
 
 type FixedCalendarUnit =
   | "QUARTER" | "MONTH" | "DAY_OF_WEEK"
@@ -107,11 +110,15 @@ type FixedCalendarUnit =
 
 **`dynamic`** is the unresolved mode produced by the YAML parser when it encounters `strategy: DYNAMIC`. The engine resolves it at execution time based on the source column's type:
 
-- LABEL / TEXT → `distinct`
-- NUMBER → `dynamicRange`
-- DATE → `dynamicRange`
+- LABEL / TEXT → `distinct` (`preferredUnit` ignored)
+- NUMBER → `distinct` (`preferredUnit` ignored)
+- DATE → `dynamicRange` with `preferredUnit` forwarded
 
 The other three modes (`distinct`, `fixedCalendar`, `dynamicRange`) are fully resolved and can be constructed directly in code without going through YAML parsing.
+
+**NUMBER + `dynamic` resolves to `distinct`, not `dynamicRange`.** Java routes all NUMBER columns to `IntervalBuilderDynamicLabel` (distinct by value). This is the correct default — the engine can't know whether numbers are categorical (HTTP status codes, priority levels) or continuous (temperatures, prices). Distinct is safe for both; `dynamicRange` would produce wrong results for categorical data. Users who want range bins on continuous numeric data must explicitly request `dynamicRange`.
+
+**NUMBER + `dynamicRange` (equal-width bins) is a new capability not present in Java.** Java has no numeric range binning — `ClientIntervalBuilderLocator` always routes NUMBER to `IntervalBuilderDynamicLabel`. The TypeScript model adds `dynamicRange` on NUMBER as explicit opt-in for continuous numeric data.
 
 ### GroupingKey
 
@@ -120,7 +127,7 @@ interface GroupingKey {
   readonly sourceId: ColumnId;
   readonly columnId: ColumnId;
   readonly strategy: GroupStrategy;
-  readonly maxIntervals: number;        // default 15, applies to dynamicRange and distinct
+  readonly maxIntervals: number;        // default 15, applies to dynamicRange only
   readonly emptyIntervals: boolean;     // include empty buckets? default false
   readonly ascendingOrder: boolean;     // bucket sort order, default true
   readonly firstMonthOfYear?: Month;    // fiscal year start, default 1 (January)
@@ -135,16 +142,18 @@ type DayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;  // 1=Monday, 7=Sunday (ISO 8601)
 
 This is a deliberate refactoring of `timeframe.ts`'s existing `Month` string type — the string representation requires lookup tables (`MONTH_INDEX`) just to do arithmetic. The numeric representation is the right internal model; string names belong at the serialisation boundary.
 
+**`maxIntervals` applies to `dynamicRange` only.** It controls range granularity (how wide the bins are). For `distinct` grouping, each unique value is definitionally its own bucket — there's no granularity to control. Java's `IntervalBuilderDynamicLabel` has an unimplemented `// TODO: create a composite interval when the maxIntervals are reached` — the TypeScript model does not implement this. Display-layer truncation handles the "too many buckets" case.
+
 ### Strategy × Column Type Compatibility (runtime-validated)
 
 | Strategy | DATE | NUMBER | LABEL | TEXT |
 |---|---|---|---|---|
 | distinct | yes | yes | yes | yes |
 | fixedCalendar | yes | — | — | — |
-| dynamicRange | yes | yes | — | — |
+| dynamicRange | yes | yes (new) | — | — |
 | dynamic | resolved at runtime based on column type |
 
-`distinct` works on all column types. NUMBER + distinct is a valid use case (HTTP status codes, priority levels, rating scores). Java already groups NUMBER columns via `IntervalBuilderDynamicLabel` (distinct by value). TEXT + distinct is permitted — the engine doesn't restrict grouping by free-form text; if it produces too many buckets, that's the user's choice.
+`distinct` works on all column types. NUMBER + distinct is a valid use case (HTTP status codes, priority levels, rating scores). Java already groups NUMBER columns via `IntervalBuilderDynamicLabel` (distinct by value).
 
 ---
 
@@ -162,9 +171,9 @@ interface GroupOp {
 }
 ```
 
-- **`groupingKey: null`** — aggregate all rows without partitioning. `kind: "key"` columns are invalid in this case (error: "Key columns require a grouping key"). `kind: "select"` produces the first row's value (by original row order) across the entire dataset.
+- **`groupingKey: null`** — aggregate all rows without partitioning. `kind: "key"` columns are invalid in this case (error `INVALID_OPERATION`: "Key columns require a grouping key"). `kind: "select"` produces the first row's value (by original row order) across the entire dataset.
 - **`selectedIntervals`** — drill-down: narrow to rows in named buckets before applying the next operation.
-- **`join`** — nested group join. When a second GroupOp follows a non-selection first GroupOp, `join: true` creates nested intervals within each parent bucket. Without `join` or `selectedIntervals`, a second GroupOp after a non-selection first GroupOp is an error (not silently dropped as in Java). See §7 for full semantics.
+- **`join`** — nested group join. When a second GroupOp follows a non-selection first GroupOp, `join: true` creates nested intervals within each parent bucket. Without `join` or `selectedIntervals`, a second GroupOp after a non-selection first GroupOp is an error `INVALID_OPERATION` (not silently dropped as in Java). See §7 for full semantics and worked example.
 
 ### SortOp
 
@@ -213,11 +222,38 @@ type IntervalList = readonly Interval[];
 | any | distinct | One bucket per unique value. `Map<string, number[]>`. |
 | DATE | fixedCalendar | Predetermined count: MONTH→12, QUARTER→4, DAY_OF_WEEK→7, HOUR→24, MINUTE→60, SECOND→60. Bucket assignment via UTC calendar field extraction. |
 | DATE | dynamicRange | Find min/max. Pick smallest DateIntervalType producing ≤ maxIntervals buckets. Calendar-aligned boundaries via truncateToInterval/advanceByInterval. |
-| NUMBER | dynamicRange | Find min/max. Equal-width bins capped at maxIntervals. |
+| NUMBER | dynamicRange | Find min/max. Equal-width bins capped at maxIntervals. **New capability** — Java uses distinct grouping for all NUMBER columns via `IntervalBuilderDynamicLabel`. `dynamicRange` on NUMBER must be explicitly requested; `dynamic` mode resolves to `distinct`. |
+
+### Bucket Naming Conventions
+
+Interval names must be deterministic because `selectedIntervals` matches by name.
+
+| Strategy | Naming rule |
+|---|---|
+| **distinct** | `value.toString()` (null values: `"null"`) |
+| **fixedCalendar MONTH** | Month index as string: `"1"` through `"12"` |
+| **fixedCalendar QUARTER** | Quarter index as string: `"1"` through `"4"` |
+| **fixedCalendar DAY_OF_WEEK** | Day index as string: `"1"` through `"7"` |
+| **fixedCalendar HOUR** | `"0"` through `"23"` |
+| **fixedCalendar MINUTE** | `"0"` through `"59"` |
+| **fixedCalendar SECOND** | `"0"` through `"59"` |
+| **dynamicRange (DATE)** | ISO 8601 UTC format, granularity-dependent (see below) |
+| **dynamicRange (NUMBER)** | `"<min>-<max>"` (e.g. `"0-100"`) |
+
+**Date interval naming by granularity** (matches Java `ClientIntervalBuilderDynamicDate.calculateName()`):
+
+| Granularity | Format | Example |
+|---|---|---|
+| YEAR, DECADE, CENTURY, MILLENIUM | `"yyyy"` | `"2024"` |
+| QUARTER, MONTH | `"yyyy-MM"` | `"2024-03"` |
+| WEEK, DAY, DAY_OF_WEEK | `"yyyy-MM-dd"` | `"2024-03-15"` |
+| HOUR | `"yyyy-MM-dd HH"` | `"2024-03-15 09"` |
+| MINUTE | `"yyyy-MM-dd HH:mm"` | `"2024-03-15 09:30"` |
+| SECOND | `"yyyy-MM-dd HH:mm:ss"` | `"2024-03-15 09:30:45"` |
 
 ### Date Arithmetic — `date-interval.ts`
 
-**This is the canonical module for all date arithmetic in the codebase.** `timeframe.ts` is refactored to import from it — its existing `truncate()` and `applyOffset()` implementations move here.
+**This is the canonical module for all date arithmetic in the codebase.** `timeframe.ts` is refactored to import from it — its existing `truncate()` and `applyOffset()` implementations move here. `TruncationUnit` and `OffsetUnit` remain in `timeframe.ts` as constrained subsets of the imported `DateIntervalType`: `type TruncationUnit = Extract<DateIntervalType, "MINUTE" | "HOUR" | ...>`.
 
 ```typescript
 type DateIntervalType =
@@ -230,15 +266,20 @@ type DateIntervalType =
 type Month = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 type DayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-function truncateToInterval(date: Date, unit: DateIntervalType): Date
+function truncateToInterval(
+  date: Date,
+  unit: DateIntervalType,
+  opts?: { firstMonthOfYear?: Month },
+): Date
+
 function advanceByInterval(date: Date, unit: DateIntervalType, count: number): Date
 ```
 
 `DateIntervalType` retains all 15 members (including sub-second) because `timeframe.ts`'s `OffsetUnit` already uses SECOND and the full set is needed for completeness. The bucketing engine only uses SECOND and above for interval generation, but the type itself is shared across both uses.
 
-`truncateToInterval` — zeroes fields below the interval unit (YEAR → Jan 1 00:00:00 UTC). Subsumes `timeframe.ts`'s `truncate(date, unit, "begin")`.
+`truncateToInterval` — zeroes fields below the interval unit (YEAR → Jan 1 00:00:00 UTC). Supports fiscal year alignment via `firstMonthOfYear` for YEAR and QUARTER truncation (e.g., truncating to fiscal year start when the fiscal year begins in April). This subsumes `timeframe.ts`'s `truncate(date, unit, "begin", firstMonthOfYear)`. End-of-interval is composed: `advanceByInterval(truncateToInterval(date, unit, opts), unit, 1)`.
 
-`advanceByInterval` — calendar arithmetic, not millisecond addition. Adding 1 month to Jan 31 → Feb 28/29. Subsumes `timeframe.ts`'s `applyOffset()`.
+`advanceByInterval` — calendar arithmetic, not millisecond addition. Adding 1 month to Jan 31 → Feb 28/29.
 
 All operations use UTC methods exclusively (`getUTCMonth`, `setUTCMonth`, etc.).
 
@@ -274,7 +315,7 @@ Matches the Java `DateIntervalType.DURATION_IN_MILLIS` values. These use rough a
 2. Compute `span = max - min` in milliseconds
 3. Walk DateIntervalType from smallest to largest (MILLISECOND → MILLENIUM); first type where `span / APPROXIMATE_DURATION_MS[type] < maxIntervals` is selected
 4. If `preferredUnit` is specified on the `dynamicRange` strategy and the computed type is finer-grained, use the preferred unit instead
-5. Generate boundaries: `truncateToInterval(min, type)` then `advanceByInterval()` until past max
+5. Generate boundaries: `truncateToInterval(min, type, { firstMonthOfYear })` then `advanceByInterval()` until past max
 6. Walk sorted values, assign each to its interval
 
 ---
@@ -292,7 +333,7 @@ function computeAggregation(
 
 | Function | NULL behavior | Empty input |
 |---|---|---|
-| COUNT | counts all rows including NULLs (`COUNT(*)` semantics, not `COUNT(column)`) | `{ type: "NUMBER", value: 0 }` |
+| COUNT | counts all rows including NULLs (SQL `COUNT(*)` semantics, not `COUNT(column)`) | `{ type: "NUMBER", value: 0 }` |
 | DISTINCT | NULLs count as one distinct value | `{ type: "NUMBER", value: 0 }` |
 | SUM | skip NULLs | `{ type: "NUMBER", value: 0 }` |
 | AVERAGE | skip NULLs from sum and count | `{ type: "NUMBER", value: 0 }` |
@@ -303,6 +344,8 @@ function computeAggregation(
 
 MIN/MAX return NULL on empty input — there is no minimum of nothing.
 
+COUNT uses `COUNT(*)` semantics deliberately — it counts rows in the bucket, not non-null values. This matches the Java `CountFunction` which returns `rows.size()`.
+
 ### No Rounding in the Aggregation Engine
 
 Aggregation produces exact IEEE 754 double results. Java's 2-decimal rounding (via `AbstractFunction.round(value, 2)`) is a display concern — it belongs in the formatter/displayer layer, not in the computation engine.
@@ -310,12 +353,12 @@ Aggregation produces exact IEEE 754 double results. Java's 2-decimal rounding (v
 Specifically:
 - Rounding MIN/MAX is incorrect — the result may not exist in the input data
 - Rounding SUM loses precision for downstream consumers (further aggregations, exports)
-- COUNT and DISTINCT are already integers — rounding them is meaningless work
+- COUNT and DISTINCT are already integers — rounding them is meaningless work (Java doesn't round them either)
 - AVERAGE and MEDIAN produce fractional results that should be formatted at display time, not truncated during computation
 
 ### Type Safety Enforcement
 
-When the engine encounters a `NumericAggregation` (SUM/AVERAGE/MEDIAN), it verifies the source column is `ColumnType.NUMBER` before computing. Mismatch is a thrown error: "SUM requires a NUMBER column, but '{columnId}' is {actualType}". Checked once per GroupOp evaluation, not per-row.
+When the engine encounters a `NumericAggregation` (SUM/AVERAGE/MEDIAN), it verifies the source column is `ColumnType.NUMBER` before computing. Mismatch is a thrown error (`TYPE_MISMATCH`): "SUM requires a NUMBER column, but '{columnId}' is {actualType}". Checked once per GroupOp evaluation, not per-row.
 
 ---
 
@@ -330,7 +373,7 @@ function applyOps(
 
 ### Step 1 — Validate Operation Ordering
 
-Build a string from type discriminants (`F`, `G`, `S`), match against regex `F*G*S?`. Reject with descriptive error on mismatch.
+Build a string from type discriminants (`F`, `G`, `S`), match against regex `F*G*S?`. Reject with `INVALID_OPERATION` error on mismatch.
 
 ### Step 2 — Apply Operations Sequentially
 
@@ -343,7 +386,7 @@ Each op transforms the TypedDataSet:
 ### applyGroup Logic
 
 1. **groupingKey is null** → whole-dataset aggregation.
-   - Validation: `kind: "key"` result columns are invalid — error: "Key columns require a grouping key."
+   - Validation: `kind: "key"` result columns are invalid — error `INVALID_OPERATION`: "Key columns require a grouping key."
    - `kind: "aggregate"` columns: compute aggregation over all rows.
    - `kind: "select"` columns: first row's value by original row order.
    - Produce a single-row TypedDataSet.
@@ -364,15 +407,45 @@ For key and aggregate columns, `name` = `columnId` (these are derived columns). 
 
 ### Multiple GroupOps
 
-**Without `join` or `selectedIntervals`:** a second GroupOp after a non-selection first GroupOp is an error: "Multiple group operations require either `selectedIntervals` (drill-down) or `join: true` (nested grouping) on subsequent groups." Java silently discards the second GroupOp — this is fixed.
+**Without `join` or `selectedIntervals`:** a second GroupOp after a non-selection first GroupOp is an error `INVALID_OPERATION`: "Multiple group operations require either `selectedIntervals` (drill-down) or `join: true` (nested grouping) on subsequent groups." Java silently discards the second GroupOp — this is fixed.
 
 **With `selectedIntervals`:** the engine computes buckets, narrows to rows in the named intervals, then subsequent operations run on the narrowed set.
 
 **With `join: true`:** nested grouping. For each parent bucket, the child grouping runs on only that bucket's rows. The output flattens — each combination of (parent bucket, child bucket) becomes a row. The child GroupOp's `columns` array defines the output shape entirely. If the parent key is needed alongside child results, include it as a `select` column in the child GroupOp.
 
+#### join: true — Worked Example
+
+Input dataset:
+
+| region | product | revenue |
+|--------|---------|---------|
+| East   | Widgets | 100     |
+| East   | Gadgets | 200     |
+| West   | Widgets | 150     |
+| West   | Gadgets | 50      |
+
+GroupOp 1: group by `region`, columns = `[key:region, aggregate:SUM(revenue)]`
+→ Parent buckets: East (rows 0,1), West (rows 2,3)
+
+GroupOp 2: `join: true`, group by `product`, columns = `[select:region, key:product, aggregate:SUM(revenue)]`
+→ Sub-group within each parent:
+- Within East (rows 0,1): Widgets (row 0), Gadgets (row 1)
+- Within West (rows 2,3): Widgets (row 2), Gadgets (row 3)
+
+Output (4 rows — one per parent×child combination):
+
+| region | product | SUM(revenue) |
+|--------|---------|-------------|
+| East   | Widgets | 100         |
+| East   | Gadgets | 200         |
+| West   | Widgets | 150         |
+| West   | Gadgets | 50          |
+
+The `select:region` column takes the first value from each sub-bucket's rows. Since all rows within a sub-bucket share the same parent region, this consistently produces the parent's value.
+
 ### applySort Logic
 
-1. Validate all referenced columns exist
+1. Validate all referenced columns exist (`UNKNOWN_COLUMN` error if not)
 2. Stable multi-column sort: compare by first SortColumn, break ties with subsequent columns
 3. Comparison semantics per column type:
    - NUMBER: numeric comparison
@@ -383,12 +456,19 @@ For key and aggregate columns, `name` = `columnId` (these are derived columns). 
 
 ### Error Handling
 
-Thrown errors with descriptive messages, not silent fallbacks:
-- "Column 'revenue' not found in dataset"
-- "SUM requires a NUMBER column, but 'name' is TEXT"
-- "Fixed calendar grouping requires a DATE column, but 'price' is NUMBER"
-- "Key columns require a grouping key"
-- "Multiple group operations require either selectedIntervals or join: true on subsequent groups"
+All errors are thrown as `DataSetError` with the appropriate code:
+
+| Error | Code |
+|---|---|
+| Column not found in dataset | `UNKNOWN_COLUMN` |
+| SUM/AVERAGE/MEDIAN on non-NUMBER column | `TYPE_MISMATCH` |
+| fixedCalendar on non-DATE column | `TYPE_MISMATCH` |
+| dynamicRange on non-DATE/non-NUMBER column | `TYPE_MISMATCH` |
+| Key columns with null groupingKey | `INVALID_OPERATION` |
+| Second GroupOp without join or selectedIntervals | `INVALID_OPERATION` |
+| Invalid operation sequence (not matching `F*G*S?`) | `INVALID_OPERATION` |
+
+`INVALID_OPERATION` is a new `DataSetErrorCode` value — the operation is structurally well-formed but semantically invalid in context.
 
 ---
 
@@ -399,9 +479,11 @@ packages/core/src/dataset/
   types.ts              — existing
   filter.ts             — existing
   filter-eval.ts        — existing
-  timeframe.ts          — existing (refactored: imports date arithmetic from date-interval.ts)
+  timeframe.ts          — existing (refactored: imports date arithmetic from date-interval.ts;
+                           TruncationUnit and OffsetUnit remain here as constrained subsets:
+                           type TruncationUnit = Extract<DateIntervalType, "MINUTE" | "HOUR" | ...>)
   conversion.ts         — existing
-  errors.ts             — existing
+  errors.ts             — existing (add INVALID_OPERATION code)
 
   date-interval.ts      — NEW: DateIntervalType (all 15 members), Month, DayOfWeek,
                            APPROXIMATE_DURATION_MS, truncateToInterval(),
@@ -429,8 +511,8 @@ The internal model differs from the YAML/Java wire format in several places. The
 | YAML/Java | Internal model |
 |---|---|
 | `strategy: FIXED` + `intervalSize: MONTH` | `{ mode: "fixedCalendar", unit: "MONTH" }` |
-| `strategy: DYNAMIC` | `{ mode: "dynamic" }` (resolved by engine at execution time) |
-| `strategy: DYNAMIC` + `intervalSize: MONTH` | `{ mode: "dynamicRange", preferredUnit: "MONTH" }` |
+| `strategy: DYNAMIC` | `{ mode: "dynamic" }` |
+| `strategy: DYNAMIC` + `intervalSize: MONTH` | `{ mode: "dynamic", preferredUnit: "MONTH" }` |
 | `function: JOIN_COMMA` | `{ fn: "JOIN", separator: ", " }` |
 | `function: JOIN_HYPHEN` | `{ fn: "JOIN", separator: " - " }` |
 | `function: null` (Java GroupFunction) | `{ kind: "key" }` or `{ kind: "select" }` depending on context |
