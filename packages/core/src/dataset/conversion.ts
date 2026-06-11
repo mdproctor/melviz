@@ -34,7 +34,7 @@ function parseCell(value: string, column: Column, rowIndex: number): CellValue {
   }
 }
 
-function createTypedRow(cells: readonly CellValue[], columns: readonly Column[]): TypedRow {
+export function createTypedRow(cells: readonly CellValue[], columns: readonly Column[]): TypedRow {
   const frozenCells = Object.freeze([...cells]);
 
   const columnIndex = new Map<ColumnId, number>();

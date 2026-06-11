@@ -1,6 +1,6 @@
-import type { CellValue, ColumnId, TypedDataSet } from "./types.js";
+import type { CellValue, Column, ColumnId, TypedDataSet } from "./types.js";
 import { ColumnType } from "./types.js";
-import type { Aggregation, Interval, IntervalList } from "./group.js";
+import type { Aggregation, GroupOp, GroupStrategy, GroupingKey, Interval, IntervalList, ResultColumn } from "./group.js";
 import type { FixedCalendarUnit } from "./group.js";
 import type { Month, DayOfWeek } from "./date-interval.js";
 import type { DateIntervalType } from "./date-interval.js";
@@ -9,6 +9,8 @@ import {
   truncateToInterval,
   advanceByInterval,
 } from "./date-interval.js";
+import { createTypedRow } from "./conversion.js";
+import { DataSetError } from "./errors.js";
 
 export function computeAggregation(
   fn: Aggregation,
@@ -513,6 +515,505 @@ function formatIntervalName(d: Date, unit: DateIntervalType): string {
     default:
       return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// applyGroup — single GroupOp
+// ────────────────────────────────────────────────────────────────────────────
+
+export function applyGroup(ds: TypedDataSet, op: GroupOp): TypedDataSet {
+  if (op.groupingKey === null) {
+    return applyWholeDatasetAggregation(ds, op);
+  }
+
+  // selectedIntervals → drill-down (Case 2)
+  if (op.selectedIntervals !== undefined && op.selectedIntervals.length > 0) {
+    const intervals = computeBuckets(ds, op.groupingKey);
+    const selected = filterToSelectedIntervals(intervals, op.selectedIntervals);
+    const selectedRowIndices = collectRowIndices(selected);
+
+    // If columns is empty → narrowing only
+    if (op.columns.length === 0) {
+      return narrowDataSet(ds, selectedRowIndices);
+    }
+
+    // Otherwise: build output from the selected rows grouped by bucket
+    return materialise(ds, selected, op.columns, op.groupingKey);
+  }
+
+  // Case 3: Full group-by
+  const resolvedKey = resolveStrategy(ds, op.groupingKey);
+  validateStrategyColumnTypeCompat(ds, resolvedKey);
+
+  let intervals = computeBuckets(ds, resolvedKey);
+
+  // Optionally filter empty buckets
+  if (!resolvedKey.emptyIntervals) {
+    intervals = intervals.filter((iv) => iv.rowIndices.length > 0);
+  }
+
+  // Sort buckets
+  intervals = sortBuckets(intervals, resolvedKey.ascendingOrder);
+
+  return materialise(ds, intervals, op.columns, resolvedKey);
+}
+
+function applyWholeDatasetAggregation(ds: TypedDataSet, op: GroupOp): TypedDataSet {
+  // Validate: no key columns allowed without a grouping key
+  for (const col of op.columns) {
+    if (col.kind === "key") {
+      throw new DataSetError(
+        "INVALID_OPERATION",
+        "Key columns require a grouping key",
+      );
+    }
+  }
+
+  // Type-check numeric aggregations
+  for (const col of op.columns) {
+    if (col.kind === "aggregate") {
+      validateAggregationColumnType(ds, col);
+    }
+  }
+
+  const outputColumns = buildOutputColumns(ds, op.columns);
+  const cells: CellValue[] = [];
+
+  for (const col of op.columns) {
+    if (col.kind === "aggregate") {
+      const values = collectColumnValues(ds, col.sourceId, allRowIndices(ds));
+      cells.push(computeAggregation(col.fn, values));
+    } else if (col.kind === "select") {
+      if (ds.rows.length === 0) {
+        cells.push({ type: "NULL" as const });
+      } else {
+        cells.push(ds.rows[0]!.cell(col.sourceId));
+      }
+    }
+  }
+
+  const row = createTypedRow(cells, outputColumns);
+  return { columns: outputColumns, rows: [row] };
+}
+
+function resolveStrategy(ds: TypedDataSet, key: GroupingKey): GroupingKey {
+  if (key.strategy.mode !== "dynamic") {
+    return key;
+  }
+
+  const sourceCol = findColumn(ds, key.sourceId);
+  let resolved: GroupingKey;
+
+  switch (sourceCol.type) {
+    case ColumnType.LABEL:
+    case ColumnType.TEXT:
+    case ColumnType.NUMBER:
+      resolved = { ...key, strategy: { mode: "distinct" } };
+      break;
+    case ColumnType.DATE: {
+      const dynamicStrategy = key.strategy as { readonly mode: "dynamic"; readonly preferredUnit?: DateIntervalType };
+      const rangeStrategy: GroupStrategy = dynamicStrategy.preferredUnit !== undefined
+        ? { mode: "dynamicRange", preferredUnit: dynamicStrategy.preferredUnit }
+        : { mode: "dynamicRange" };
+      resolved = { ...key, strategy: rangeStrategy };
+      break;
+    }
+  }
+
+  return resolved;
+}
+
+function validateStrategyColumnTypeCompat(ds: TypedDataSet, key: GroupingKey): void {
+  const sourceCol = findColumn(ds, key.sourceId);
+
+  if (key.strategy.mode === "fixedCalendar" && sourceCol.type !== ColumnType.DATE) {
+    throw new DataSetError(
+      "TYPE_MISMATCH",
+      `fixedCalendar strategy requires a DATE column, got ${sourceCol.type} for column "${key.sourceId}"`,
+    );
+  }
+
+  if (key.strategy.mode === "dynamicRange" &&
+    sourceCol.type !== ColumnType.DATE && sourceCol.type !== ColumnType.NUMBER) {
+    throw new DataSetError(
+      "TYPE_MISMATCH",
+      `dynamicRange strategy requires a DATE or NUMBER column, got ${sourceCol.type} for column "${key.sourceId}"`,
+    );
+  }
+}
+
+function validateAggregationColumnType(ds: TypedDataSet, col: ResultColumn & { kind: "aggregate" }): void {
+  const fn = col.fn.fn;
+  if (fn === "SUM" || fn === "AVERAGE" || fn === "MEDIAN") {
+    const sourceCol = findColumn(ds, col.sourceId);
+    if (sourceCol.type !== ColumnType.NUMBER) {
+      throw new DataSetError(
+        "TYPE_MISMATCH",
+        `${fn} requires a NUMBER column, got ${sourceCol.type} for column "${col.sourceId}"`,
+      );
+    }
+  }
+}
+
+function computeBuckets(ds: TypedDataSet, key: GroupingKey): Interval[] {
+  switch (key.strategy.mode) {
+    case "distinct":
+      return [...buildDistinctIntervals(ds, key.sourceId)];
+    case "fixedCalendar": {
+      const calOpts: { firstMonthOfYear?: Month; firstDayOfWeek?: DayOfWeek } = {};
+      if (key.firstMonthOfYear !== undefined) calOpts.firstMonthOfYear = key.firstMonthOfYear;
+      if (key.firstDayOfWeek !== undefined) calOpts.firstDayOfWeek = key.firstDayOfWeek;
+      return [...buildFixedCalendarIntervals(ds, key.sourceId, key.strategy.unit, calOpts)];
+    }
+    case "dynamicRange": {
+      const sourceCol = findColumn(ds, key.sourceId);
+      if (sourceCol.type === ColumnType.DATE) {
+        const dateOpts: { preferredUnit?: DateIntervalType; firstMonthOfYear?: Month } = {};
+        if (key.strategy.preferredUnit !== undefined) dateOpts.preferredUnit = key.strategy.preferredUnit;
+        if (key.firstMonthOfYear !== undefined) dateOpts.firstMonthOfYear = key.firstMonthOfYear;
+        return [...buildDynamicDateIntervals(ds, key.sourceId, key.maxIntervals, dateOpts)];
+      }
+      return [...buildDynamicNumberIntervals(ds, key.sourceId, key.maxIntervals)];
+    }
+    case "dynamic":
+      // Should have been resolved by resolveStrategy before reaching here
+      throw new DataSetError("INVALID_OPERATION", "Unresolved dynamic strategy");
+  }
+}
+
+function filterToSelectedIntervals(
+  intervals: readonly Interval[],
+  selected: readonly string[],
+): Interval[] {
+  const selectedSet = new Set(selected);
+  return intervals.filter((iv) => selectedSet.has(iv.name));
+}
+
+function collectRowIndices(intervals: readonly Interval[]): number[] {
+  const indices: number[] = [];
+  for (const iv of intervals) {
+    for (const idx of iv.rowIndices) {
+      indices.push(idx);
+    }
+  }
+  // Sort to preserve original row order
+  indices.sort((a, b) => a - b);
+  return indices;
+}
+
+function narrowDataSet(ds: TypedDataSet, rowIndices: readonly number[]): TypedDataSet {
+  const rows = rowIndices.map((idx) => ds.rows[idx]!);
+  return { columns: ds.columns, rows };
+}
+
+function allRowIndices(ds: TypedDataSet): number[] {
+  const indices: number[] = [];
+  for (let i = 0; i < ds.rows.length; i++) {
+    indices.push(i);
+  }
+  return indices;
+}
+
+function collectColumnValues(
+  ds: TypedDataSet,
+  sourceId: ColumnId,
+  rowIndices: readonly number[],
+): CellValue[] {
+  const values: CellValue[] = [];
+  for (const idx of rowIndices) {
+    values.push(ds.rows[idx]!.cell(sourceId));
+  }
+  return values;
+}
+
+function buildOutputColumns(
+  ds: TypedDataSet,
+  resultColumns: readonly ResultColumn[],
+): Column[] {
+  const columns: Column[] = [];
+
+  for (const rc of resultColumns) {
+    switch (rc.kind) {
+      case "key":
+        columns.push({
+          id: rc.columnId,
+          name: rc.columnId as string,
+          type: ColumnType.LABEL,
+        });
+        break;
+      case "aggregate":
+        columns.push({
+          id: rc.columnId,
+          name: rc.columnId as string,
+          type: inferAggregateColumnType(ds, rc),
+        });
+        break;
+      case "select": {
+        const sourceCol = findColumn(ds, rc.sourceId);
+        columns.push({
+          id: rc.columnId,
+          name: sourceCol.name,
+          type: sourceCol.type,
+        });
+        break;
+      }
+    }
+  }
+
+  return columns;
+}
+
+function inferAggregateColumnType(
+  ds: TypedDataSet,
+  rc: ResultColumn & { kind: "aggregate" },
+): ColumnType {
+  const fn = rc.fn.fn;
+  switch (fn) {
+    case "SUM":
+    case "AVERAGE":
+    case "MEDIAN":
+    case "COUNT":
+    case "DISTINCT":
+      return ColumnType.NUMBER;
+    case "MIN":
+    case "MAX":
+      return findColumn(ds, rc.sourceId).type;
+    case "JOIN":
+      return ColumnType.TEXT;
+  }
+}
+
+function materialise(
+  ds: TypedDataSet,
+  intervals: readonly Interval[],
+  resultColumns: readonly ResultColumn[],
+  key: GroupingKey,
+): TypedDataSet {
+  // Validate aggregation column types before materialising
+  for (const col of resultColumns) {
+    if (col.kind === "aggregate") {
+      validateAggregationColumnType(ds, col as ResultColumn & { kind: "aggregate" });
+    }
+  }
+
+  const outputColumns = buildOutputColumns(ds, resultColumns);
+  const rows = [];
+
+  for (const interval of intervals) {
+    const cells: CellValue[] = [];
+
+    for (const rc of resultColumns) {
+      switch (rc.kind) {
+        case "key":
+          cells.push({ type: ColumnType.LABEL, value: interval.name });
+          break;
+        case "aggregate": {
+          const values = collectColumnValues(ds, rc.sourceId, interval.rowIndices);
+          cells.push(computeAggregation(rc.fn, values));
+          break;
+        }
+        case "select": {
+          if (interval.rowIndices.length === 0) {
+            cells.push({ type: "NULL" as const });
+          } else {
+            // First row by original row order
+            const minRowIdx = Math.min(...interval.rowIndices);
+            cells.push(ds.rows[minRowIdx]!.cell(rc.sourceId));
+          }
+          break;
+        }
+      }
+    }
+
+    rows.push(createTypedRow(cells, outputColumns));
+  }
+
+  return { columns: outputColumns, rows };
+}
+
+function sortBuckets(intervals: readonly Interval[], ascending: boolean): Interval[] {
+  const sorted = [...intervals];
+  if (!ascending) {
+    sorted.reverse();
+  }
+  return sorted;
+}
+
+function findColumn(ds: TypedDataSet, columnId: ColumnId): Column {
+  const col = ds.columns.find((c) => c.id === columnId);
+  if (col === undefined) {
+    throw new DataSetError("UNKNOWN_COLUMN", `Column "${columnId}" not found`);
+  }
+  return col;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// applyGroupSequence — consecutive GroupOps with deferred materialisation
+// ────────────────────────────────────────────────────────────────────────────
+
+export function applyGroupSequence(ds: TypedDataSet, ops: readonly GroupOp[]): TypedDataSet {
+  if (ops.length === 0) {
+    return ds;
+  }
+
+  if (ops.length === 1) {
+    return applyGroup(ds, ops[0]!);
+  }
+
+  // Validate: subsequent GroupOps must have selectedIntervals or join: true
+  for (let i = 1; i < ops.length; i++) {
+    const op = ops[i]!;
+    const hasSelectedIntervals = op.selectedIntervals !== undefined && op.selectedIntervals.length > 0;
+    const hasJoin = op.join === true;
+    if (!hasSelectedIntervals && !hasJoin) {
+      throw new DataSetError(
+        "INVALID_OPERATION",
+        "Multiple group operations require either selectedIntervals (drill-down) or join: true (nested grouping) on subsequent groups",
+      );
+    }
+  }
+
+  // Process GroupOps sequentially, tracking partitions
+  // A partition is a set of row indices from the original dataset
+  type Partition = { parentLabel?: string; rowIndices: number[] };
+  let partitions: Partition[] = [{ rowIndices: allRowIndices(ds) }];
+
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]!;
+    const isFinal = i === ops.length - 1;
+
+    if (op.groupingKey === null) {
+      // Whole-dataset aggregation on current partitions — only meaningful as final
+      if (isFinal) {
+        return applyGroup(ds, op);
+      }
+      continue;
+    }
+
+    const hasSelectedIntervals = op.selectedIntervals !== undefined && op.selectedIntervals.length > 0;
+
+    if (hasSelectedIntervals) {
+      // Drill-down: narrow partitions to selected intervals
+      const newPartitions: Partition[] = [];
+      for (const partition of partitions) {
+        const subDs = narrowDataSet(ds, partition.rowIndices);
+        const resolvedKey = resolveStrategy(ds, op.groupingKey);
+        const intervals = computeBuckets(subDs, resolvedKey);
+        const selected = filterToSelectedIntervals(intervals, op.selectedIntervals!);
+        // Map sub-dataset row indices back to original dataset row indices
+        const selectedOriginalIndices: number[] = [];
+        for (const iv of selected) {
+          for (const subIdx of iv.rowIndices) {
+            selectedOriginalIndices.push(partition.rowIndices[subIdx]!);
+          }
+        }
+        selectedOriginalIndices.sort((a, b) => a - b);
+        newPartitions.push({ ...partition, rowIndices: selectedOriginalIndices });
+      }
+      partitions = newPartitions;
+    } else if (op.join === true) {
+      // Nested grouping: for each parent partition, compute child buckets
+      const newPartitions: Partition[] = [];
+      for (const partition of partitions) {
+        const subDs = narrowDataSet(ds, partition.rowIndices);
+        const resolvedKey = resolveStrategy(ds, op.groupingKey);
+        validateStrategyColumnTypeCompat(ds, resolvedKey);
+
+        let intervals = computeBuckets(subDs, resolvedKey);
+
+        if (!resolvedKey.emptyIntervals) {
+          intervals = intervals.filter((iv) => iv.rowIndices.length > 0);
+        }
+
+        intervals = sortBuckets(intervals, resolvedKey.ascendingOrder);
+
+        for (const iv of intervals) {
+          // Map sub-dataset row indices back to original dataset row indices
+          const originalIndices = iv.rowIndices.map((subIdx) => partition.rowIndices[subIdx]!);
+          const child: Partition = { rowIndices: originalIndices };
+          if (partition.parentLabel !== undefined) child.parentLabel = partition.parentLabel;
+          newPartitions.push(child);
+        }
+      }
+      partitions = newPartitions;
+    } else if (i === 0) {
+      // First GroupOp: standard grouping to establish partitions
+      const resolvedKey = resolveStrategy(ds, op.groupingKey);
+      validateStrategyColumnTypeCompat(ds, resolvedKey);
+
+      let intervals = computeBuckets(ds, resolvedKey);
+
+      if (!resolvedKey.emptyIntervals) {
+        intervals = intervals.filter((iv) => iv.rowIndices.length > 0);
+      }
+
+      intervals = sortBuckets(intervals, resolvedKey.ascendingOrder);
+
+      partitions = intervals.map((iv) => ({
+        parentLabel: iv.name,
+        rowIndices: [...iv.rowIndices],
+      }));
+    }
+  }
+
+  // Materialise using the final GroupOp's columns
+  const finalOp = ops[ops.length - 1]!;
+  const resultColumns = finalOp.columns;
+
+  // Validate aggregation column types
+  for (const col of resultColumns) {
+    if (col.kind === "aggregate") {
+      validateAggregationColumnType(ds, col as ResultColumn & { kind: "aggregate" });
+    }
+  }
+
+  const outputColumns = buildOutputColumns(ds, resultColumns);
+  const rows = [];
+
+  for (const partition of partitions) {
+    const cells: CellValue[] = [];
+
+    for (const rc of resultColumns) {
+      switch (rc.kind) {
+        case "key":
+          // For key columns, we need to compute the bucket name from the partition's rows
+          // If we have a grouping key on the final op, use it
+          if (finalOp.groupingKey !== null) {
+            // Compute the bucket for this partition using the final groupingKey
+            const subDs = narrowDataSet(ds, partition.rowIndices);
+            const resolvedKey = resolveStrategy(ds, finalOp.groupingKey);
+            const intervals = computeBuckets(subDs, resolvedKey);
+            // The partition should map to a single bucket value
+            if (intervals.length > 0) {
+              cells.push({ type: ColumnType.LABEL, value: intervals[0]!.name });
+            } else {
+              cells.push({ type: "NULL" as const });
+            }
+          } else {
+            cells.push({ type: "NULL" as const });
+          }
+          break;
+        case "aggregate": {
+          const values = collectColumnValues(ds, rc.sourceId, partition.rowIndices);
+          cells.push(computeAggregation(rc.fn, values));
+          break;
+        }
+        case "select": {
+          if (partition.rowIndices.length === 0) {
+            cells.push({ type: "NULL" as const });
+          } else {
+            const minRowIdx = Math.min(...partition.rowIndices);
+            cells.push(ds.rows[minRowIdx]!.cell(rc.sourceId));
+          }
+          break;
+        }
+      }
+    }
+
+    rows.push(createTypedRow(cells, outputColumns));
+  }
+
+  return { columns: outputColumns, rows };
 }
 
 export function buildDynamicNumberIntervals(

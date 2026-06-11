@@ -5,10 +5,14 @@ import {
   buildFixedCalendarIntervals,
   buildDynamicDateIntervals,
   buildDynamicNumberIntervals,
+  applyGroup,
+  applyGroupSequence,
 } from "./group-eval.js";
 import type { CellValue, Column, ColumnId } from "./types.js";
 import { ColumnType } from "./types.js";
 import { toTypedDataSet } from "./conversion.js";
+import type { GroupOp, ResultColumn } from "./group.js";
+import { DataSetError } from "./errors.js";
 
 // Test helpers
 function num(v: number): CellValue {
@@ -1060,5 +1064,574 @@ describe("buildDynamicNumberIntervals", () => {
       expect(intervals[3]!.minValue).toBe(75);
       expect(intervals[3]!.maxValue).toBe(100);
     });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// applyGroup tests
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("applyGroup", () => {
+  // Test dataset: 4 rows with dept (LABEL) and revenue (NUMBER)
+  // dept: Sales, Engineering, Sales, Marketing
+  // revenue: 100, 200, 150, 50
+  function makeTestDs() {
+    return toTypedDataSet({
+      columns: [
+        col("dept", "Department", ColumnType.LABEL),
+        col("revenue", "Revenue", ColumnType.NUMBER),
+      ],
+      data: [
+        ["Sales", "100"],
+        ["Engineering", "200"],
+        ["Sales", "150"],
+        ["Marketing", "50"],
+      ],
+    });
+  }
+
+  it("null groupingKey — whole-dataset SUM", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: null,
+      columns: [
+        { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.number("total" as ColumnId)).toBe(500);
+  });
+
+  it("null groupingKey — kind:key is INVALID_OPERATION error", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: null,
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept" as ColumnId },
+      ],
+    };
+
+    expect(() => applyGroup(ds, op)).toThrow(DataSetError);
+    expect(() => applyGroup(ds, op)).toThrow("Key columns require a grouping key");
+  });
+
+  it("null groupingKey — kind:select returns first row value", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: null,
+      columns: [
+        { kind: "select", sourceId: "dept" as ColumnId, columnId: "firstDept" as ColumnId },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.text("firstDept" as ColumnId)).toBe("Sales");
+  });
+
+  it("distinct grouping — one row per unique dept", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept" as ColumnId },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // 3 unique depts: Sales, Engineering, Marketing
+    expect(result.rows).toHaveLength(3);
+  });
+
+  it("aggregate SUM per group", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+        { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    expect(result.rows).toHaveLength(3);
+    // Sales: 100 + 150 = 250, Engineering: 200, Marketing: 50
+    const salesRow = result.rows.find((r) => r.text("dept_key" as ColumnId) === "Sales")!;
+    expect(salesRow.number("total" as ColumnId)).toBe(250);
+    const engRow = result.rows.find((r) => r.text("dept_key" as ColumnId) === "Engineering")!;
+    expect(engRow.number("total" as ColumnId)).toBe(200);
+    const mktRow = result.rows.find((r) => r.text("dept_key" as ColumnId) === "Marketing")!;
+    expect(mktRow.number("total" as ColumnId)).toBe(50);
+  });
+
+  it("aggregate COUNT per group", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+        { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "count" as ColumnId, fn: { fn: "COUNT" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    const salesRow = result.rows.find((r) => r.text("dept_key" as ColumnId) === "Sales")!;
+    expect(salesRow.number("count" as ColumnId)).toBe(2);
+    const engRow = result.rows.find((r) => r.text("dept_key" as ColumnId) === "Engineering")!;
+    expect(engRow.number("count" as ColumnId)).toBe(1);
+  });
+
+  it("key column shows bucket name as LABEL", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // Key column values are the bucket names
+    const names = result.rows.map((r) => r.cell("dept_key" as ColumnId));
+    expect(names[0]).toEqual(label("Sales"));
+    expect(names[1]).toEqual(label("Engineering"));
+    expect(names[2]).toEqual(label("Marketing"));
+  });
+
+  it("select column shows first value in bucket", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+        { kind: "select", sourceId: "revenue" as ColumnId, columnId: "firstRev" as ColumnId },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // Sales bucket has rows 0 and 2 → first by original row order = row 0 (revenue 100)
+    const salesRow = result.rows.find((r) => r.text("dept_key" as ColumnId) === "Sales")!;
+    expect(salesRow.number("firstRev" as ColumnId)).toBe(100);
+  });
+
+  it("output columns have correct types (key=LABEL, SUM=NUMBER)", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+        { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    expect(result.columns[0]!.type).toBe(ColumnType.LABEL);
+    expect(result.columns[1]!.type).toBe(ColumnType.NUMBER);
+  });
+
+  it("TYPE_MISMATCH — SUM on LABEL column", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "aggregate", sourceId: "dept" as ColumnId, columnId: "bad" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+
+    expect(() => applyGroup(ds, op)).toThrow(DataSetError);
+    expect(() => applyGroup(ds, op)).toThrow("SUM requires a NUMBER column");
+  });
+
+  it("TYPE_MISMATCH — fixedCalendar on NUMBER column", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "revenue" as ColumnId,
+        columnId: "rev" as ColumnId,
+        strategy: { mode: "fixedCalendar", unit: "MONTH" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [],
+    };
+
+    expect(() => applyGroup(ds, op)).toThrow(DataSetError);
+    expect(() => applyGroup(ds, op)).toThrow("fixedCalendar strategy requires a DATE column");
+  });
+
+  it("dynamic strategy resolves to distinct for LABEL columns", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "dynamic" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // Should produce distinct buckets
+    expect(result.rows).toHaveLength(3);
+    expect(result.rows[0]!.text("dept_key" as ColumnId)).toBe("Sales");
+  });
+
+  it("emptyIntervals=false excludes empty buckets", () => {
+    const ds = toTypedDataSet({
+      columns: [
+        col("d", "Date", ColumnType.DATE),
+        col("v", "Value", ColumnType.NUMBER),
+      ],
+      data: [
+        ["2024-01-15T00:00:00.000Z", "10"],
+        ["2024-03-15T00:00:00.000Z", "20"],
+      ],
+    });
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "d" as ColumnId,
+        columnId: "d" as ColumnId,
+        strategy: { mode: "fixedCalendar", unit: "MONTH" },
+        maxIntervals: 100,
+        emptyIntervals: false,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "d" as ColumnId, columnId: "month_key" as ColumnId },
+        { kind: "aggregate", sourceId: "v" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // Only Jan (bucket "1") and Mar (bucket "3") should appear — 10 empty months excluded
+    expect(result.rows).toHaveLength(2);
+  });
+
+  it("ascending=false reverses bucket order", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: false,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // Distinct intervals in first-seen order: Sales, Engineering, Marketing
+    // With ascending=false → reversed: Marketing, Engineering, Sales
+    expect(result.rows[0]!.text("dept_key" as ColumnId)).toBe("Marketing");
+    expect(result.rows[1]!.text("dept_key" as ColumnId)).toBe("Engineering");
+    expect(result.rows[2]!.text("dept_key" as ColumnId)).toBe("Sales");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// applyGroupSequence tests
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("applyGroupSequence", () => {
+  // Test dataset: 4 rows — region, product, revenue
+  // East/Widgets/100, East/Gadgets/200, West/Widgets/150, West/Gadgets/50
+  function makeSeqDs() {
+    return toTypedDataSet({
+      columns: [
+        col("region", "Region", ColumnType.LABEL),
+        col("product", "Product", ColumnType.LABEL),
+        col("revenue", "Revenue", ColumnType.NUMBER),
+      ],
+      data: [
+        ["East", "Widgets", "100"],
+        ["East", "Gadgets", "200"],
+        ["West", "Widgets", "150"],
+        ["West", "Gadgets", "50"],
+      ],
+    });
+  }
+
+  it("single op sequence delegates to applyGroup", () => {
+    const ds = makeSeqDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "region" as ColumnId,
+        columnId: "region" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "region" as ColumnId, columnId: "region_key" as ColumnId },
+        { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+
+    const result = applyGroupSequence(ds, [op]);
+
+    expect(result.rows).toHaveLength(2);
+    const eastRow = result.rows.find((r) => r.text("region_key" as ColumnId) === "East")!;
+    expect(eastRow.number("total" as ColumnId)).toBe(300); // 100 + 200
+    const westRow = result.rows.find((r) => r.text("region_key" as ColumnId) === "West")!;
+    expect(westRow.number("total" as ColumnId)).toBe(200); // 150 + 50
+  });
+
+  it("second GroupOp without join or selectedIntervals → INVALID_OPERATION", () => {
+    const ds = makeSeqDs();
+    const ops: GroupOp[] = [
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "region" as ColumnId,
+          columnId: "region" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [],
+      },
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "product" as ColumnId,
+          columnId: "product" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [
+          { kind: "key", sourceId: "product" as ColumnId, columnId: "product_key" as ColumnId },
+        ],
+      },
+    ];
+
+    expect(() => applyGroupSequence(ds, ops)).toThrow(DataSetError);
+    expect(() => applyGroupSequence(ds, ops)).toThrow("Multiple group operations require");
+  });
+
+  it("selectedIntervals narrows to selected buckets", () => {
+    const ds = makeSeqDs();
+    const ops: GroupOp[] = [
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "region" as ColumnId,
+          columnId: "region" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [],
+        selectedIntervals: ["East"],
+      },
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "product" as ColumnId,
+          columnId: "product" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [
+          { kind: "key", sourceId: "product" as ColumnId, columnId: "product_key" as ColumnId },
+          { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+        ],
+        join: true,
+      },
+    ];
+
+    const result = applyGroupSequence(ds, ops);
+
+    // Only East rows: Widgets/100, Gadgets/200
+    expect(result.rows).toHaveLength(2);
+    const widgetsRow = result.rows.find((r) => r.text("product_key" as ColumnId) === "Widgets")!;
+    expect(widgetsRow.number("total" as ColumnId)).toBe(100);
+    const gadgetsRow = result.rows.find((r) => r.text("product_key" as ColumnId) === "Gadgets")!;
+    expect(gadgetsRow.number("total" as ColumnId)).toBe(200);
+  });
+
+  it("join: true — nested grouping produces parent x child rows", () => {
+    const ds = makeSeqDs();
+    // GroupOp 1: group by region
+    // GroupOp 2: join=true, group by product, columns=[select:region, key:product, SUM(revenue)]
+    // Output: East/Widgets/100, East/Gadgets/200, West/Widgets/150, West/Gadgets/50
+    const ops: GroupOp[] = [
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "region" as ColumnId,
+          columnId: "region" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [],
+      },
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "product" as ColumnId,
+          columnId: "product" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [
+          { kind: "select", sourceId: "region" as ColumnId, columnId: "region_val" as ColumnId },
+          { kind: "key", sourceId: "product" as ColumnId, columnId: "product_key" as ColumnId },
+          { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+        ],
+        join: true,
+      },
+    ];
+
+    const result = applyGroupSequence(ds, ops);
+
+    // 2 regions x 2 products = 4 rows
+    expect(result.rows).toHaveLength(4);
+
+    // Verify each combination
+    const rows = result.rows.map((r) => ({
+      region: r.text("region_val" as ColumnId),
+      product: r.text("product_key" as ColumnId),
+      total: r.number("total" as ColumnId),
+    }));
+
+    expect(rows).toContainEqual({ region: "East", product: "Widgets", total: 100 });
+    expect(rows).toContainEqual({ region: "East", product: "Gadgets", total: 200 });
+    expect(rows).toContainEqual({ region: "West", product: "Widgets", total: 150 });
+    expect(rows).toContainEqual({ region: "West", product: "Gadgets", total: 50 });
+  });
+
+  it("only final GroupOp columns define output shape", () => {
+    const ds = makeSeqDs();
+    const ops: GroupOp[] = [
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "region" as ColumnId,
+          columnId: "region" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        // First op has columns, but they should be ignored
+        columns: [
+          { kind: "key", sourceId: "region" as ColumnId, columnId: "region_key" as ColumnId },
+          { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "ignored_total" as ColumnId, fn: { fn: "SUM" } },
+        ],
+      },
+      {
+        type: "group",
+        groupingKey: {
+          sourceId: "product" as ColumnId,
+          columnId: "product" as ColumnId,
+          strategy: { mode: "distinct" },
+          maxIntervals: 100,
+          emptyIntervals: true,
+          ascendingOrder: true,
+        },
+        columns: [
+          { kind: "key", sourceId: "product" as ColumnId, columnId: "product_key" as ColumnId },
+          { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "rev_sum" as ColumnId, fn: { fn: "SUM" } },
+        ],
+        join: true,
+      },
+    ];
+
+    const result = applyGroupSequence(ds, ops);
+
+    // Output should have columns from the final op only
+    expect(result.columns).toHaveLength(2);
+    expect(result.columns[0]!.id).toBe("product_key");
+    expect(result.columns[1]!.id).toBe("rev_sum");
+    // First op's "region_key" and "ignored_total" should not be in the output
+    expect(result.columns.find((c) => c.id === ("region_key" as ColumnId))).toBeUndefined();
+    expect(result.columns.find((c) => c.id === ("ignored_total" as ColumnId))).toBeUndefined();
   });
 });
