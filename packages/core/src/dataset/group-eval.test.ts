@@ -4,6 +4,7 @@ import {
   buildDistinctIntervals,
   buildFixedCalendarIntervals,
   buildDynamicDateIntervals,
+  buildDynamicNumberIntervals,
 } from "./group-eval.js";
 import type { CellValue, Column, ColumnId } from "./types.js";
 import { ColumnType } from "./types.js";
@@ -935,6 +936,129 @@ describe("buildDynamicDateIntervals", () => {
         expect(iv.minValue).toBeInstanceOf(Date);
         expect(iv.maxValue).toBeInstanceOf(Date);
       }
+    });
+  });
+});
+
+describe("buildDynamicNumberIntervals", () => {
+  describe("equal-width bins", () => {
+    it("creates bins spanning the value range", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["0"], ["25"], ["50"], ["75"], ["100"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 4);
+
+      expect(intervals).toHaveLength(4);
+      // First bin: [0, 25)
+      expect(intervals[0]!.name).toBe("0-25");
+      expect(intervals[0]!.minValue).toBe(0);
+      expect(intervals[0]!.maxValue).toBe(25);
+      // Last bin includes max value (100)
+      expect(intervals[3]!.name).toBe("75-100");
+    });
+
+    it("assigns values to correct bins", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["10"], ["30"], ["50"], ["70"], ["90"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 4);
+
+      // All rows should be assigned
+      const allRows = intervals.flatMap((iv) => [...iv.rowIndices]).sort((a, b) => a - b);
+      expect(allRows).toEqual([0, 1, 2, 3, 4]);
+    });
+  });
+
+  describe("respects maxIntervals", () => {
+    it("creates at most maxIntervals bins", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["0"], ["100"], ["200"], ["300"], ["400"], ["500"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 3);
+
+      expect(intervals).toHaveLength(3);
+    });
+  });
+
+  describe("naming", () => {
+    it("names bins as 'min-max'", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["0"], ["100"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 2);
+
+      expect(intervals[0]!.name).toBe("0-50");
+      expect(intervals[1]!.name).toBe("50-100");
+    });
+  });
+
+  describe("edge cases", () => {
+    it("single value produces single bin", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["42"], ["42"], ["42"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 5);
+
+      expect(intervals).toHaveLength(1);
+      expect(intervals[0]!.rowIndices).toEqual([0, 1, 2]);
+    });
+
+    it("handles negative numbers", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["-100"], ["-50"], ["0"], ["50"], ["100"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 4);
+
+      expect(intervals).toHaveLength(4);
+      expect(intervals[0]!.name).toBe("-100--50");
+      // All rows assigned
+      const allRows = intervals.flatMap((iv) => [...iv.rowIndices]).sort((a, b) => a - b);
+      expect(allRows).toEqual([0, 1, 2, 3, 4]);
+    });
+
+    it("null values are skipped", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["10"], [null], ["20"], [null]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 5);
+
+      const allRows = intervals.flatMap((iv) => [...iv.rowIndices]);
+      expect(allRows).toContain(0);
+      expect(allRows).toContain(2);
+      expect(allRows).not.toContain(1);
+      expect(allRows).not.toContain(3);
+    });
+
+    it("empty dataset produces empty result", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 5);
+
+      expect(intervals).toHaveLength(0);
+    });
+  });
+
+  describe("minValue/maxValue", () => {
+    it("sets minValue and maxValue on each interval", () => {
+      const ds = toTypedDataSet({
+        columns: [col("v", "Value", ColumnType.NUMBER)],
+        data: [["0"], ["100"]],
+      });
+      const intervals = buildDynamicNumberIntervals(ds, "v" as ColumnId, 4);
+
+      expect(intervals[0]!.minValue).toBe(0);
+      expect(intervals[0]!.maxValue).toBe(25);
+      expect(intervals[3]!.minValue).toBe(75);
+      expect(intervals[3]!.maxValue).toBe(100);
     });
   });
 });

@@ -514,3 +514,80 @@ function formatIntervalName(d: Date, unit: DateIntervalType): string {
       return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
   }
 }
+
+export function buildDynamicNumberIntervals(
+  ds: TypedDataSet,
+  sourceId: ColumnId,
+  maxIntervals: number,
+): IntervalList {
+  // 1. Collect non-null NUMBER values with row indices
+  const entries: { rowIdx: number; value: number }[] = [];
+  for (let rowIdx = 0; rowIdx < ds.rows.length; rowIdx++) {
+    const row = ds.rows[rowIdx]!;
+    const cellValue = row.cell(sourceId);
+    if (cellValue.type === ColumnType.NUMBER) {
+      entries.push({ rowIdx, value: cellValue.value });
+    }
+  }
+
+  if (entries.length === 0) {
+    return Object.freeze([]);
+  }
+
+  // 2. Find min and max
+  let min = entries[0]!.value;
+  let max = entries[0]!.value;
+  for (const entry of entries) {
+    if (entry.value < min) min = entry.value;
+    if (entry.value > max) max = entry.value;
+  }
+
+  // 3. Single value → single interval
+  if (min === max) {
+    return Object.freeze([{
+      name: `${min}-${max}`,
+      index: 0,
+      rowIndices: Object.freeze(entries.map((e) => e.rowIdx)),
+      minValue: min,
+      maxValue: max,
+    }]);
+  }
+
+  // 4. Compute bin width and generate bins
+  const binWidth = (max - min) / maxIntervals;
+
+  // Sort entries by value for efficient bin assignment
+  entries.sort((a, b) => a.value - b.value);
+
+  const intervals: Interval[] = [];
+  let entryIdx = 0;
+
+  for (let i = 0; i < maxIntervals; i++) {
+    const binMin = min + i * binWidth;
+    const binMax = min + (i + 1) * binWidth;
+    const isLastBin = i === maxIntervals - 1;
+    const rowIndices: number[] = [];
+
+    // Walk sorted entries that fall within this bin
+    // Last bin uses <= for upper bound (includes max)
+    while (entryIdx < entries.length) {
+      const val = entries[entryIdx]!.value;
+      if (isLastBin ? val <= binMax : val < binMax) {
+        rowIndices.push(entries[entryIdx]!.rowIdx);
+        entryIdx++;
+      } else {
+        break;
+      }
+    }
+
+    intervals.push({
+      name: `${binMin}-${binMax}`,
+      index: i,
+      rowIndices: Object.freeze([...rowIndices]),
+      minValue: binMin,
+      maxValue: binMax,
+    });
+  }
+
+  return Object.freeze(intervals);
+}
