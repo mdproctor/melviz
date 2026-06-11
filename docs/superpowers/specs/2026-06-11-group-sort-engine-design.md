@@ -415,9 +415,11 @@ For key and aggregate columns, `name` = `columnId` (these are derived columns). 
 
 **Without `join` or `selectedIntervals`:** a second GroupOp after a non-selection first GroupOp is an error `INVALID_OPERATION`: "Multiple group operations require either `selectedIntervals` (drill-down) or `join: true` (nested grouping) on subsequent groups." Java silently discards the second GroupOp — this is fixed.
 
-**With `selectedIntervals`:** the engine computes buckets, narrows to rows in the named intervals, then subsequent operations run on the narrowed set.
+**With `selectedIntervals`:** the engine computes buckets, narrows to rows in the named intervals, then subsequent operations run on the narrowed set. If both `selectedIntervals` and `join` are set, `selectedIntervals` takes precedence — the GroupOp performs interval selection.
 
 **With `join: true`:** nested grouping. For each parent bucket, the child grouping runs on only that bucket's rows. The output flattens — each combination of (parent bucket, child bucket) becomes a row. The child GroupOp's `columns` array defines the output shape entirely. If the parent key is needed alongside child results, include it as a `select` column in the child GroupOp.
+
+When consecutive GroupOps are processed via `applyGroupSequence`, only the final GroupOp's `columns` define the output shape. Earlier GroupOps use only `groupingKey` for bucket computation.
 
 #### join: true — Worked Example
 
