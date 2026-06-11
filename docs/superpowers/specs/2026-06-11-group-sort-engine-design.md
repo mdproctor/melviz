@@ -24,6 +24,7 @@ Key decisions:
 
 - **MIN/MAX restricted to NUMBER columns:** `AggregateFunctionType._numericOnly` incorrectly includes MIN and MAX. Finding the earliest date (`MIN` on DATE) or lexicographic minimum (`MIN` on LABEL/TEXT) are valid operations. The TypeScript model corrects this by placing MIN/MAX in `UniversalAggregation`.
 - **Rounding in aggregation:** Java's `AbstractFunction.round(value, 2)` applies 2-decimal rounding inside SUM, AVERAGE, MEDIAN, MIN, and MAX — but not COUNT or DISTINCT. Rounding MIN/MAX is lossy (the result may not exist in the input data). Rounding SUM loses precision for downstream consumers. Aggregation should compute exact results; display rounding belongs in the formatter layer.
+- **AVERAGE divides by total rows instead of non-null count:** Java's `AverageFunction` divides by `rows.size()` (all rows including nulls) instead of the count of non-null values. With 5 rows all NULL: Java computes 0/5 = 0. SQL AVG returns NULL. The TypeScript model adopts SQL semantics — AVERAGE/MEDIAN with zero non-null values returns NULL.
 - **Silent group-op discard:** Java's engine silently drops a second GroupOp when the first has no interval selection and `join` is false (returns false from `group()`, no error). The TypeScript engine treats this as an error.
 - **TEXT columns forbidden from grouping:** Java throws `'text columns no grouping'` for TEXT columns via `ClientIntervalBuilderLocator`. The TypeScript model removes this restriction — TEXT is structurally identical to LABEL for grouping purposes. The LABEL/TEXT distinction affects column semantics (LABEL = categorical, TEXT = free-form), not whether grouping is permitted.
 
@@ -230,7 +231,7 @@ Interval names must be deterministic because `selectedIntervals` matches by name
 
 | Strategy | Naming rule |
 |---|---|
-| **distinct** | `value.toString()` (null values: `"null"`) |
+| **distinct** | TEXT/LABEL: the string value. NUMBER: `String(value)`. DATE: `date.toISOString()`. null: `"null"`. |
 | **fixedCalendar MONTH** | Month index as string: `"1"` through `"12"` |
 | **fixedCalendar QUARTER** | Quarter index as string: `"1"` through `"4"` |
 | **fixedCalendar DAY_OF_WEEK** | Day index as string: `"1"` through `"7"` |
@@ -331,18 +332,20 @@ function computeAggregation(
 
 ### NULL Handling (SQL semantics)
 
-| Function | NULL behavior | Empty input |
-|---|---|---|
-| COUNT | counts all rows including NULLs (SQL `COUNT(*)` semantics, not `COUNT(column)`) | `{ type: "NUMBER", value: 0 }` |
-| DISTINCT | NULLs count as one distinct value | `{ type: "NUMBER", value: 0 }` |
-| SUM | skip NULLs | `{ type: "NUMBER", value: 0 }` |
-| AVERAGE | skip NULLs from sum and count | `{ type: "NUMBER", value: 0 }` |
-| MEDIAN | skip NULLs | `{ type: "NUMBER", value: 0 }` |
-| MIN | skip NULLs | `{ type: "NULL" }` |
-| MAX | skip NULLs | `{ type: "NULL" }` |
-| JOIN | skip NULLs | `{ type: "TEXT", value: "" }` |
+"Empty/all-null" covers two cases: zero rows in the bucket, or all values are NULL. The principle: functions with identity elements (SUM→0, COUNT→0, JOIN→"") return them. Functions without (AVERAGE, MEDIAN, MIN, MAX) return NULL — the result is genuinely undefined.
 
-MIN/MAX return NULL on empty input — there is no minimum of nothing.
+| Function | NULL behavior | 0 rows | N rows, all NULL |
+|---|---|---|---|
+| COUNT | counts all rows including NULLs (`COUNT(*)`) | `{ type: "NUMBER", value: 0 }` | `{ type: "NUMBER", value: N }` |
+| DISTINCT | NULLs count as one distinct value | `{ type: "NUMBER", value: 0 }` | `{ type: "NUMBER", value: 1 }` |
+| SUM | skip NULLs | `{ type: "NUMBER", value: 0 }` | `{ type: "NUMBER", value: 0 }` |
+| AVERAGE | skip NULLs from both sum and count | `{ type: "NULL" }` | `{ type: "NULL" }` |
+| MEDIAN | skip NULLs | `{ type: "NULL" }` | `{ type: "NULL" }` |
+| MIN | skip NULLs | `{ type: "NULL" }` | `{ type: "NULL" }` |
+| MAX | skip NULLs | `{ type: "NULL" }` | `{ type: "NULL" }` |
+| JOIN | skip NULLs | `{ type: "TEXT", value: "" }` | `{ type: "TEXT", value: "" }` |
+
+**Java bug fix:** Java's `AverageFunction` divides by `rows.size()` (total rows including nulls) instead of the count of non-null values. With 5 rows all NULL: Java computes 0/5 = 0. SQL AVG returns NULL. The TypeScript model adopts SQL semantics — AVERAGE with zero non-null values is undefined, not zero.
 
 COUNT uses `COUNT(*)` semantics deliberately — it counts rows in the bucket, not non-null values. This matches the Java `CountFunction` which returns `rows.size()`.
 
@@ -375,12 +378,15 @@ function applyOps(
 
 Build a string from type discriminants (`F`, `G`, `S`), match against regex `F*G*S?`. Reject with `INVALID_OPERATION` error on mismatch.
 
-### Step 2 — Apply Operations Sequentially
+### Step 2 — Apply Operations
 
-Each op transforms the TypedDataSet:
+The simple sequential reduce pattern (`ops.reduce((ds, op) => applyOp(ds, op))`) holds for cross-type transitions: filter→group materializes the filtered dataset before grouping, group→sort materializes the grouped dataset before sorting.
 
+**Consecutive GroupOps are the exception.** A joined GroupOp needs the original dataset's columns and rows, not the parent GroupOp's materialized 2-row output. `applyOps` collects consecutive GroupOps and delegates to an internal `applyGroupSequence(originalDs, groupOps)` that maintains row partitions (bucket assignments) throughout the sequence and materializes once after the final GroupOp. This matches the Java engine's `InternalContext`, which preserves `context.dataSet` (the original dataset) across all group operations and calls `buildDataSet()` only at the end.
+
+Operations:
 - `FilterOp` → `applyFilter(ds, op)` (already implemented)
-- `GroupOp` → `applyGroup(ds, op)` (new)
+- Consecutive `GroupOp`s → `applyGroupSequence(ds, groupOps)` (new)
 - `SortOp` → `applySort(ds, op)` (new)
 
 ### applyGroup Logic
