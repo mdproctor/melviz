@@ -7,7 +7,8 @@ export type DataSetErrorCode =
   | "INVALID_REF"
   | "UNKNOWN_COLUMN"
   | "TYPE_MISMATCH"
-  | "UNKNOWN_PROVIDER";
+  | "UNKNOWN_PROVIDER"
+  | "INVALID_OPERATION";
 
 export class DataSetError extends Error {
   override readonly cause?: unknown;
