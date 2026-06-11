@@ -1,6 +1,8 @@
 import type { CellValue, ColumnId, TypedDataSet } from "./types.js";
 import { ColumnType } from "./types.js";
 import type { Aggregation, Interval, IntervalList } from "./group.js";
+import type { FixedCalendarUnit } from "./group.js";
+import type { Month, DayOfWeek } from "./date-interval.js";
 
 export function computeAggregation(
   fn: Aggregation,
@@ -260,4 +262,109 @@ function getBucketName(val: CellValue): string {
     return val.value;
   }
   return "unknown";
+}
+
+export function buildFixedCalendarIntervals(
+  ds: TypedDataSet,
+  sourceId: ColumnId,
+  unit: FixedCalendarUnit,
+  opts?: { firstMonthOfYear?: Month; firstDayOfWeek?: DayOfWeek },
+): IntervalList {
+  const bucketCount = getFixedBucketCount(unit);
+  const firstMonth = opts?.firstMonthOfYear ?? 1;
+  const firstDay = opts?.firstDayOfWeek ?? 1;
+
+  // Pre-allocate row index arrays for each bucket
+  const bucketRows: number[][] = [];
+  for (let i = 0; i < bucketCount; i++) {
+    bucketRows.push([]);
+  }
+
+  // Walk rows and assign to buckets
+  for (let rowIdx = 0; rowIdx < ds.rows.length; rowIdx++) {
+    const row = ds.rows[rowIdx]!;
+    const cellValue = row.cell(sourceId);
+    if (cellValue.type !== ColumnType.DATE) {
+      continue; // skip NULLs and non-date values
+    }
+
+    const bucketIndex = getFixedBucketIndex(cellValue.value, unit, firstMonth, firstDay);
+    bucketRows[bucketIndex]!.push(rowIdx);
+  }
+
+  // Build intervals
+  const intervals: Interval[] = [];
+  const nameOffset = getFixedNameOffset(unit);
+  for (let i = 0; i < bucketCount; i++) {
+    intervals.push({
+      name: String(i + nameOffset),
+      index: i,
+      rowIndices: Object.freeze([...bucketRows[i]!]),
+    });
+  }
+
+  return Object.freeze(intervals);
+}
+
+function getFixedBucketCount(unit: FixedCalendarUnit): number {
+  switch (unit) {
+    case "QUARTER": return 4;
+    case "MONTH": return 12;
+    case "DAY_OF_WEEK": return 7;
+    case "HOUR": return 24;
+    case "MINUTE": return 60;
+    case "SECOND": return 60;
+  }
+}
+
+/** Name offset: MONTH/QUARTER/DAY_OF_WEEK start at 1, HOUR/MINUTE/SECOND start at 0 */
+function getFixedNameOffset(unit: FixedCalendarUnit): number {
+  switch (unit) {
+    case "QUARTER":
+    case "MONTH":
+    case "DAY_OF_WEEK":
+      return 1;
+    case "HOUR":
+    case "MINUTE":
+    case "SECOND":
+      return 0;
+  }
+}
+
+function getFixedBucketIndex(
+  d: Date,
+  unit: FixedCalendarUnit,
+  firstMonth: Month,
+  firstDay: DayOfWeek,
+): number {
+  switch (unit) {
+    case "MONTH": {
+      // Calendar month (1-based) mapped to bucket position with rotation
+      const calMonth = d.getUTCMonth() + 1; // 1-12
+      return ((calMonth - firstMonth + 12) % 12);
+    }
+
+    case "QUARTER": {
+      // Determine which fiscal quarter the month falls into
+      const calMonth = d.getUTCMonth() + 1; // 1-12
+      const offset = ((calMonth - firstMonth + 12) % 12);
+      return Math.floor(offset / 3);
+    }
+
+    case "DAY_OF_WEEK": {
+      // getUTCDay(): 0=Sun, 1=Mon, ..., 6=Sat
+      // ISO: 1=Mon, 2=Tue, ..., 7=Sun
+      const isoDay = ((d.getUTCDay() + 6) % 7) + 1; // 1-7
+      return ((isoDay - firstDay + 7) % 7);
+    }
+
+    case "HOUR":
+      return d.getUTCHours();
+
+    case "MINUTE":
+      return d.getUTCMinutes();
+
+    case "SECOND":
+      return d.getUTCSeconds();
+  }
 }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { computeAggregation, buildDistinctIntervals } from "./group-eval.js";
+import {
+  computeAggregation,
+  buildDistinctIntervals,
+  buildFixedCalendarIntervals,
+} from "./group-eval.js";
 import type { CellValue, Column, ColumnId } from "./types.js";
 import { ColumnType } from "./types.js";
 import { toTypedDataSet } from "./conversion.js";
@@ -14,8 +18,8 @@ function text(v: string): CellValue {
 function label(v: string): CellValue {
   return { type: ColumnType.LABEL, value: v };
 }
-function date(y: number, m: number, d: number): CellValue {
-  return { type: ColumnType.DATE, value: new Date(Date.UTC(y, m - 1, d)) };
+function date(y: number, m: number, d: number, h = 0, min = 0, sec = 0): CellValue {
+  return { type: ColumnType.DATE, value: new Date(Date.UTC(y, m - 1, d, h, min, sec)) };
 }
 const NULL: CellValue = { type: "NULL" };
 
@@ -486,6 +490,235 @@ describe("buildDistinctIntervals", () => {
       expect(intervals[0]!.name).toBe("Z");
       expect(intervals[1]!.name).toBe("A");
       expect(intervals[2]!.name).toBe("M");
+    });
+  });
+});
+
+describe("buildFixedCalendarIntervals", () => {
+  describe("MONTH", () => {
+    it("creates 12 buckets named '1' through '12'", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          ["2024-03-10T00:00:00.000Z"],
+          ["2024-07-20T00:00:00.000Z"],
+          ["2024-01-25T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "MONTH");
+
+      expect(intervals).toHaveLength(12);
+      // Buckets named "1" through "12"
+      for (let i = 0; i < 12; i++) {
+        expect(intervals[i]!.name).toBe(String(i + 1));
+        expect(intervals[i]!.index).toBe(i);
+      }
+      // January rows
+      expect(intervals[0]!.rowIndices).toEqual([0, 3]);
+      // March
+      expect(intervals[2]!.rowIndices).toEqual([1]);
+      // July
+      expect(intervals[6]!.rowIndices).toEqual([2]);
+      // Empty months have no rows
+      expect(intervals[1]!.rowIndices).toEqual([]); // Feb
+      expect(intervals[11]!.rowIndices).toEqual([]); // Dec
+    });
+
+    it("rotates bucket order with firstMonthOfYear=4 (April)", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-04-01T00:00:00.000Z"], // April → bucket "1"
+          ["2024-05-01T00:00:00.000Z"], // May → bucket "2"
+          ["2024-12-01T00:00:00.000Z"], // December → bucket "9"
+          ["2024-01-01T00:00:00.000Z"], // January → bucket "10"
+          ["2024-03-01T00:00:00.000Z"], // March → bucket "12"
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "MONTH", {
+        firstMonthOfYear: 4,
+      });
+
+      expect(intervals).toHaveLength(12);
+      expect(intervals[0]!.name).toBe("1");
+      expect(intervals[0]!.rowIndices).toEqual([0]); // April
+      expect(intervals[1]!.rowIndices).toEqual([1]); // May
+      expect(intervals[8]!.rowIndices).toEqual([2]); // December → bucket "9"
+      expect(intervals[9]!.rowIndices).toEqual([3]); // January → bucket "10"
+      expect(intervals[11]!.rowIndices).toEqual([4]); // March → bucket "12"
+    });
+  });
+
+  describe("QUARTER", () => {
+    it("creates 4 buckets named '1' through '4'", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"], // Q1
+          ["2024-04-10T00:00:00.000Z"], // Q2
+          ["2024-07-20T00:00:00.000Z"], // Q3
+          ["2024-10-25T00:00:00.000Z"], // Q4
+          ["2024-02-01T00:00:00.000Z"], // Q1
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "QUARTER");
+
+      expect(intervals).toHaveLength(4);
+      expect(intervals[0]).toEqual(expect.objectContaining({ name: "1", index: 0, rowIndices: [0, 4] }));
+      expect(intervals[1]).toEqual(expect.objectContaining({ name: "2", index: 1, rowIndices: [1] }));
+      expect(intervals[2]).toEqual(expect.objectContaining({ name: "3", index: 2, rowIndices: [2] }));
+      expect(intervals[3]).toEqual(expect.objectContaining({ name: "4", index: 3, rowIndices: [3] }));
+    });
+
+    it("aligns with fiscal quarters when firstMonthOfYear=4", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-04-01T00:00:00.000Z"], // Fiscal Q1 (Apr-Jun)
+          ["2024-07-01T00:00:00.000Z"], // Fiscal Q2 (Jul-Sep)
+          ["2024-01-01T00:00:00.000Z"], // Fiscal Q4 (Jan-Mar)
+          ["2024-03-31T00:00:00.000Z"], // Fiscal Q4 (Jan-Mar)
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "QUARTER", {
+        firstMonthOfYear: 4,
+      });
+
+      expect(intervals).toHaveLength(4);
+      expect(intervals[0]!.rowIndices).toEqual([0]); // Q1: Apr
+      expect(intervals[1]!.rowIndices).toEqual([1]); // Q2: Jul
+      expect(intervals[2]!.rowIndices).toEqual([]); // Q3: Oct
+      expect(intervals[3]!.rowIndices).toEqual([2, 3]); // Q4: Jan, Mar
+    });
+  });
+
+  describe("DAY_OF_WEEK", () => {
+    it("creates 7 buckets with ISO day numbers (1=Monday)", () => {
+      // 2024-01-15 is a Monday, 2024-01-21 is a Sunday
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"], // Monday → bucket "1"
+          ["2024-01-16T00:00:00.000Z"], // Tuesday → bucket "2"
+          ["2024-01-21T00:00:00.000Z"], // Sunday → bucket "7"
+          ["2024-01-17T00:00:00.000Z"], // Wednesday → bucket "3"
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "DAY_OF_WEEK");
+
+      expect(intervals).toHaveLength(7);
+      expect(intervals[0]).toEqual(expect.objectContaining({ name: "1", rowIndices: [0] })); // Mon
+      expect(intervals[1]).toEqual(expect.objectContaining({ name: "2", rowIndices: [1] })); // Tue
+      expect(intervals[2]).toEqual(expect.objectContaining({ name: "3", rowIndices: [3] })); // Wed
+      expect(intervals[6]).toEqual(expect.objectContaining({ name: "7", rowIndices: [2] })); // Sun
+    });
+
+    it("rotates with firstDayOfWeek=7 (Sunday start)", () => {
+      // 2024-01-21 is a Sunday, 2024-01-15 is a Monday
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-21T00:00:00.000Z"], // Sunday → bucket "1" (first)
+          ["2024-01-15T00:00:00.000Z"], // Monday → bucket "2"
+          ["2024-01-20T00:00:00.000Z"], // Saturday → bucket "7"
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "DAY_OF_WEEK", {
+        firstDayOfWeek: 7,
+      });
+
+      expect(intervals).toHaveLength(7);
+      expect(intervals[0]).toEqual(expect.objectContaining({ name: "1", rowIndices: [0] })); // Sunday
+      expect(intervals[1]).toEqual(expect.objectContaining({ name: "2", rowIndices: [1] })); // Monday
+      expect(intervals[6]).toEqual(expect.objectContaining({ name: "7", rowIndices: [2] })); // Saturday
+    });
+  });
+
+  describe("HOUR", () => {
+    it("creates 24 buckets named '0' through '23'", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:30:00.000Z"], // hour 0
+          ["2024-01-15T14:00:00.000Z"], // hour 14
+          ["2024-01-15T23:59:00.000Z"], // hour 23
+          ["2024-01-16T00:00:00.000Z"], // hour 0
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "HOUR");
+
+      expect(intervals).toHaveLength(24);
+      expect(intervals[0]).toEqual(expect.objectContaining({ name: "0", index: 0, rowIndices: [0, 3] }));
+      expect(intervals[14]).toEqual(expect.objectContaining({ name: "14", index: 14, rowIndices: [1] }));
+      expect(intervals[23]).toEqual(expect.objectContaining({ name: "23", index: 23, rowIndices: [2] }));
+    });
+  });
+
+  describe("NULL handling", () => {
+    it("skips NULL values", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          [null],
+          ["2024-03-10T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "MONTH");
+
+      expect(intervals).toHaveLength(12);
+      expect(intervals[0]!.rowIndices).toEqual([0]); // Jan
+      expect(intervals[2]!.rowIndices).toEqual([2]); // Mar
+      // NULL row (index 1) not present in any bucket
+      const allRows = intervals.flatMap((iv) => [...iv.rowIndices]);
+      expect(allRows).not.toContain(1);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("returns all empty buckets for empty dataset", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "MONTH");
+
+      expect(intervals).toHaveLength(12);
+      for (const iv of intervals) {
+        expect(iv.rowIndices).toEqual([]);
+      }
+    });
+
+    it("MINUTE creates 60 buckets named '0' through '59'", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T10:05:00.000Z"], // minute 5
+          ["2024-01-15T10:59:30.000Z"], // minute 59
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "MINUTE");
+
+      expect(intervals).toHaveLength(60);
+      expect(intervals[0]!.name).toBe("0");
+      expect(intervals[5]!.rowIndices).toEqual([0]);
+      expect(intervals[59]!.rowIndices).toEqual([1]);
+    });
+
+    it("SECOND creates 60 buckets named '0' through '59'", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T10:05:30.000Z"], // second 30
+          ["2024-01-15T10:05:00.000Z"], // second 0
+        ],
+      });
+      const intervals = buildFixedCalendarIntervals(ds, "d" as ColumnId, "SECOND");
+
+      expect(intervals).toHaveLength(60);
+      expect(intervals[30]!.rowIndices).toEqual([0]);
+      expect(intervals[0]!.rowIndices).toEqual([1]);
     });
   });
 });
