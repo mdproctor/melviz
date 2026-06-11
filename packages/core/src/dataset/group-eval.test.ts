@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { computeAggregation } from "./group-eval.js";
-import type { CellValue } from "./types.js";
+import { computeAggregation, buildDistinctIntervals } from "./group-eval.js";
+import type { CellValue, Column, ColumnId } from "./types.js";
 import { ColumnType } from "./types.js";
+import { toTypedDataSet } from "./conversion.js";
 
 // Test helpers
 function num(v: number): CellValue {
@@ -291,6 +292,200 @@ describe("computeAggregation", () => {
       expect(
         computeAggregation({ fn: "JOIN", separator: " " }, [text("count:"), num(42), label("end")]),
       ).toEqual(text("count: 42 end"));
+    });
+  });
+});
+
+// Test helper
+function col(id: string, name: string, type: ColumnType): Column {
+  return { id: id as ColumnId, name, type };
+}
+
+describe("buildDistinctIntervals", () => {
+  describe("LABEL columns", () => {
+    it("creates one bucket per unique label value", () => {
+      const ds = toTypedDataSet({
+        columns: [col("dept", "Department", ColumnType.LABEL)],
+        data: [["Sales"], ["Engineering"], ["Sales"], ["Marketing"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "dept" as ColumnId);
+
+      expect(intervals).toHaveLength(3);
+      expect(intervals[0]).toEqual({
+        name: "Sales",
+        index: 0,
+        rowIndices: [0, 2],
+      });
+      expect(intervals[1]).toEqual({
+        name: "Engineering",
+        index: 1,
+        rowIndices: [1],
+      });
+      expect(intervals[2]).toEqual({
+        name: "Marketing",
+        index: 2,
+        rowIndices: [3],
+      });
+    });
+
+    it("preserves row order within buckets", () => {
+      const ds = toTypedDataSet({
+        columns: [col("status", "Status", ColumnType.LABEL)],
+        data: [["A"], ["B"], ["A"], ["C"], ["B"], ["A"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "status" as ColumnId);
+
+      expect(intervals[0]!.rowIndices).toEqual([0, 2, 5]);
+      expect(intervals[1]!.rowIndices).toEqual([1, 4]);
+      expect(intervals[2]!.rowIndices).toEqual([3]);
+    });
+  });
+
+  describe("NUMBER columns", () => {
+    it("creates one bucket per unique number", () => {
+      const ds = toTypedDataSet({
+        columns: [col("status", "Status Code", ColumnType.NUMBER)],
+        data: [["200"], ["404"], ["200"], ["500"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "status" as ColumnId);
+
+      expect(intervals).toHaveLength(3);
+      expect(intervals[0]).toEqual({
+        name: "200",
+        index: 0,
+        rowIndices: [0, 2],
+      });
+      expect(intervals[1]).toEqual({
+        name: "404",
+        index: 1,
+        rowIndices: [1],
+      });
+      expect(intervals[2]).toEqual({
+        name: "500",
+        index: 2,
+        rowIndices: [3],
+      });
+    });
+
+    it("names buckets using String(value)", () => {
+      const ds = toTypedDataSet({
+        columns: [col("val", "Value", ColumnType.NUMBER)],
+        data: [["1.5"], ["2.0"], ["1.5"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "val" as ColumnId);
+
+      expect(intervals[0]!.name).toBe("1.5");
+      expect(intervals[1]!.name).toBe("2");
+    });
+  });
+
+  describe("DATE columns", () => {
+    it("creates one bucket per unique date", () => {
+      const ds = toTypedDataSet({
+        columns: [col("date", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          ["2024-03-01T00:00:00.000Z"],
+          ["2024-01-15T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDistinctIntervals(ds, "date" as ColumnId);
+
+      expect(intervals).toHaveLength(2);
+      expect(intervals[0]).toEqual({
+        name: "2024-01-15T00:00:00.000Z",
+        index: 0,
+        rowIndices: [0, 2],
+      });
+      expect(intervals[1]).toEqual({
+        name: "2024-03-01T00:00:00.000Z",
+        index: 1,
+        rowIndices: [1],
+      });
+    });
+
+    it("names buckets using toISOString()", () => {
+      const ds = toTypedDataSet({
+        columns: [col("ts", "Timestamp", ColumnType.DATE)],
+        data: [["2024-03-15T14:30:00.000Z"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "ts" as ColumnId);
+
+      expect(intervals[0]!.name).toBe("2024-03-15T14:30:00.000Z");
+    });
+  });
+
+  describe("NULL handling", () => {
+    it("creates a 'null' bucket for NULL values", () => {
+      const ds = toTypedDataSet({
+        columns: [col("dept", "Department", ColumnType.LABEL)],
+        data: [[null], ["Sales"], [null]],
+      });
+      const intervals = buildDistinctIntervals(ds, "dept" as ColumnId);
+
+      expect(intervals).toHaveLength(2);
+      expect(intervals[0]).toEqual({
+        name: "null",
+        index: 0,
+        rowIndices: [0, 2],
+      });
+      expect(intervals[1]).toEqual({
+        name: "Sales",
+        index: 1,
+        rowIndices: [1],
+      });
+    });
+
+    it("handles mixed null and non-null values", () => {
+      const ds = toTypedDataSet({
+        columns: [col("status", "Status", ColumnType.NUMBER)],
+        data: [["200"], [null], ["404"], [null], ["200"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "status" as ColumnId);
+
+      expect(intervals).toHaveLength(3);
+      expect(intervals[0]!.name).toBe("200");
+      expect(intervals[0]!.rowIndices).toEqual([0, 4]);
+      expect(intervals[1]!.name).toBe("null");
+      expect(intervals[1]!.rowIndices).toEqual([1, 3]);
+      expect(intervals[2]!.name).toBe("404");
+      expect(intervals[2]!.rowIndices).toEqual([2]);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("returns empty IntervalList for empty dataset", () => {
+      const ds = toTypedDataSet({
+        columns: [col("dept", "Department", ColumnType.LABEL)],
+        data: [],
+      });
+      const intervals = buildDistinctIntervals(ds, "dept" as ColumnId);
+
+      expect(intervals).toEqual([]);
+    });
+
+    it("assigns 0-based sequential bucket indices", () => {
+      const ds = toTypedDataSet({
+        columns: [col("val", "Value", ColumnType.LABEL)],
+        data: [["C"], ["A"], ["B"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "val" as ColumnId);
+
+      expect(intervals[0]!.index).toBe(0);
+      expect(intervals[1]!.index).toBe(1);
+      expect(intervals[2]!.index).toBe(2);
+    });
+
+    it("preserves first-seen order for bucket creation", () => {
+      const ds = toTypedDataSet({
+        columns: [col("letter", "Letter", ColumnType.LABEL)],
+        data: [["Z"], ["A"], ["M"], ["Z"]],
+      });
+      const intervals = buildDistinctIntervals(ds, "letter" as ColumnId);
+
+      expect(intervals[0]!.name).toBe("Z");
+      expect(intervals[1]!.name).toBe("A");
+      expect(intervals[2]!.name).toBe("M");
     });
   });
 });

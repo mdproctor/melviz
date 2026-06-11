@@ -1,6 +1,6 @@
-import type { CellValue } from "./types.js";
+import type { CellValue, ColumnId, TypedDataSet } from "./types.js";
 import { ColumnType } from "./types.js";
-import type { Aggregation } from "./group.js";
+import type { Aggregation, Interval, IntervalList } from "./group.js";
 
 export function computeAggregation(
   fn: Aggregation,
@@ -202,4 +202,62 @@ function joinValues(values: readonly CellValue[], separator: string): CellValue 
   }
 
   return { type: ColumnType.TEXT, value: parts.join(separator) };
+}
+
+export function buildDistinctIntervals(
+  ds: TypedDataSet,
+  sourceId: ColumnId,
+): IntervalList {
+  // Map unique values to their bucket (index and row indices)
+  const buckets = new Map<string, { index: number; rowIndices: number[] }>();
+  const bucketOrder: string[] = []; // Track first-seen order
+
+  // Walk rows and build buckets
+  for (let rowIdx = 0; rowIdx < ds.rows.length; rowIdx++) {
+    const row = ds.rows[rowIdx]!;
+    const cellValue = row.cell(sourceId);
+    const bucketName = getBucketName(cellValue);
+
+    let bucket = buckets.get(bucketName);
+    if (bucket === undefined) {
+      // First time seeing this value — create new bucket
+      bucket = {
+        index: buckets.size,
+        rowIndices: [],
+      };
+      buckets.set(bucketName, bucket);
+      bucketOrder.push(bucketName);
+    }
+
+    bucket.rowIndices.push(rowIdx);
+  }
+
+  // Convert map to IntervalList in first-seen order
+  const intervals: Interval[] = [];
+  for (const bucketName of bucketOrder) {
+    const bucket = buckets.get(bucketName)!;
+    intervals.push({
+      name: bucketName,
+      index: bucket.index,
+      rowIndices: Object.freeze([...bucket.rowIndices]),
+    });
+  }
+
+  return Object.freeze(intervals);
+}
+
+function getBucketName(val: CellValue): string {
+  if (val.type === "NULL") {
+    return "null";
+  }
+  if (val.type === ColumnType.NUMBER) {
+    return String(val.value);
+  }
+  if (val.type === ColumnType.DATE) {
+    return val.value.toISOString();
+  }
+  if (val.type === ColumnType.TEXT || val.type === ColumnType.LABEL) {
+    return val.value;
+  }
+  return "unknown";
 }
