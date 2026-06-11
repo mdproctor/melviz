@@ -19,7 +19,7 @@ describe("parseTimeFrame", () => {
     expect(tf.from).toEqual({
       mode: "begin",
       unit: "YEAR",
-      firstMonthOfYear: "MARCH",
+      firstMonthOfYear: 3,
       offset: { amount: -1, unit: "YEAR" },
     });
     expect(tf.to).toEqual({ mode: "now" });
@@ -113,7 +113,7 @@ describe("resolveInstant", () => {
 
   it("resolves begin[year March] — fiscal year starting March", () => {
     const result = resolveInstant(
-      { mode: "begin", unit: "YEAR", firstMonthOfYear: "MARCH" },
+      { mode: "begin", unit: "YEAR", firstMonthOfYear: 3 },
       ref,
     );
     expect(result.toISOString()).toBe("2024-03-01T00:00:00.000Z");
@@ -122,7 +122,7 @@ describe("resolveInstant", () => {
   it("resolves begin[year March] when before March — goes to previous year", () => {
     const feb = new Date(Date.UTC(2024, 1, 15));
     const result = resolveInstant(
-      { mode: "begin", unit: "YEAR", firstMonthOfYear: "MARCH" },
+      { mode: "begin", unit: "YEAR", firstMonthOfYear: 3 },
       feb,
     );
     expect(result.toISOString()).toBe("2023-03-01T00:00:00.000Z");

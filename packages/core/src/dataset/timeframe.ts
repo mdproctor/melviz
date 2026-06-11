@@ -1,25 +1,26 @@
-export type DateIntervalType =
-  | "MILLISECOND" | "HUNDRETH" | "TENTH"
-  | "SECOND" | "MINUTE" | "HOUR"
-  | "DAY" | "DAY_OF_WEEK" | "WEEK"
-  | "MONTH" | "QUARTER" | "YEAR"
-  | "DECADE" | "CENTURY" | "MILLENIUM";
+import {
+  type DateIntervalType,
+  type Month,
+  truncateToInterval,
+  advanceByInterval,
+} from "./date-interval.js";
 
-export type TruncationUnit =
+export type { DateIntervalType, Month };
+
+export type TruncationUnit = Extract<
+  DateIntervalType,
   | "MINUTE" | "HOUR" | "DAY"
   | "MONTH" | "QUARTER" | "YEAR"
-  | "DECADE" | "CENTURY" | "MILLENIUM";
+  | "DECADE" | "CENTURY" | "MILLENIUM"
+>;
 
-export type OffsetUnit =
+export type OffsetUnit = Extract<
+  DateIntervalType,
   | "SECOND" | "MINUTE" | "HOUR"
   | "DAY" | "WEEK"
   | "MONTH" | "QUARTER" | "YEAR"
-  | "DECADE" | "CENTURY" | "MILLENIUM";
-
-export type Month =
-  | "JANUARY" | "FEBRUARY" | "MARCH" | "APRIL"
-  | "MAY" | "JUNE" | "JULY" | "AUGUST"
-  | "SEPTEMBER" | "OCTOBER" | "NOVEMBER" | "DECEMBER";
+  | "DECADE" | "CENTURY" | "MILLENIUM"
+>;
 
 export interface TimeFrame {
   readonly from: TimeInstant;
@@ -52,10 +53,10 @@ const MONTHS: ReadonlySet<string> = new Set([
   "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
 ]);
 
-const MONTH_INDEX: Record<Month, number> = {
-  JANUARY: 0, FEBRUARY: 1, MARCH: 2, APRIL: 3,
-  MAY: 4, JUNE: 5, JULY: 6, AUGUST: 7,
-  SEPTEMBER: 8, OCTOBER: 9, NOVEMBER: 10, DECEMBER: 11,
+const MONTH_NAME_TO_NUMBER: Record<string, Month> = {
+  JANUARY: 1, FEBRUARY: 2, MARCH: 3, APRIL: 4,
+  MAY: 5, JUNE: 6, JULY: 7, AUGUST: 8,
+  SEPTEMBER: 9, OCTOBER: 10, NOVEMBER: 11, DECEMBER: 12,
 };
 
 function isTruncationUnit(s: string): s is TruncationUnit {
@@ -66,7 +67,7 @@ function isOffsetUnit(s: string): s is OffsetUnit {
   return OFFSET_UNITS.has(s);
 }
 
-function isMonth(s: string): s is Month {
+function isMonth(s: string): boolean {
   return MONTHS.has(s);
 }
 
@@ -134,7 +135,7 @@ function parseTimeInstant(expr: string): TimeInstant {
     if (!isMonth(monthStr)) {
       throw new Error(`Invalid month: "${monthStr}"`);
     }
-    firstMonthOfYear = monthStr;
+    firstMonthOfYear = MONTH_NAME_TO_NUMBER[monthStr]!;
   }
 
   let offset: TimeOffset | undefined;
@@ -170,100 +171,13 @@ export function parseTimeFrame(expr: string): TimeFrame {
 }
 
 function applyOffset(date: Date, offset: TimeOffset): Date {
-  const d = new Date(date.getTime());
-  const { amount, unit } = offset;
-
-  switch (unit) {
-    case "MILLENIUM": d.setUTCFullYear(d.getUTCFullYear() + amount * 1000); break;
-    case "CENTURY": d.setUTCFullYear(d.getUTCFullYear() + amount * 100); break;
-    case "DECADE": d.setUTCFullYear(d.getUTCFullYear() + amount * 10); break;
-    case "YEAR": d.setUTCFullYear(d.getUTCFullYear() + amount); break;
-    case "QUARTER": d.setUTCMonth(d.getUTCMonth() + amount * 3); break;
-    case "MONTH": d.setUTCMonth(d.getUTCMonth() + amount); break;
-    case "WEEK": d.setUTCDate(d.getUTCDate() + amount * 7); break;
-    case "DAY": d.setUTCDate(d.getUTCDate() + amount); break;
-    case "HOUR": d.setUTCHours(d.getUTCHours() + amount); break;
-    case "MINUTE": d.setUTCMinutes(d.getUTCMinutes() + amount); break;
-    case "SECOND": d.setUTCSeconds(d.getUTCSeconds() + amount); break;
-  }
-  return d;
-}
-
-function getQuarterFirstMonth(firstMonthOfYear: number, currentMonth: number): number {
-  for (let q = 3; q >= 0; q--) {
-    const qStart = (firstMonthOfYear + q * 3) % 12;
-    if (currentMonth >= qStart) return qStart;
-  }
-  return (firstMonthOfYear + 9) % 12;
+  return advanceByInterval(date, offset.unit, offset.amount);
 }
 
 function truncate(date: Date, unit: TruncationUnit, mode: "begin" | "end", firstMonthOfYear?: Month): Date {
-  const d = new Date(date.getTime());
-  const firstMonth = firstMonthOfYear ? MONTH_INDEX[firstMonthOfYear] : 0;
-
-  switch (unit) {
-    case "MILLENIUM": {
-      const base = Math.floor(d.getUTCFullYear() / 1000);
-      const inc = mode === "end" ? 1 : 0;
-      d.setUTCFullYear((base + inc) * 1000, firstMonth, 1);
-      d.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "CENTURY": {
-      const base = Math.floor(d.getUTCFullYear() / 100);
-      const inc = mode === "end" ? 1 : 0;
-      d.setUTCFullYear((base + inc) * 100, firstMonth, 1);
-      d.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "DECADE": {
-      const base = Math.floor(d.getUTCFullYear() / 10);
-      const inc = mode === "end" ? 1 : 0;
-      d.setUTCFullYear((base + inc) * 10, firstMonth, 1);
-      d.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "YEAR": {
-      const month = d.getUTCMonth();
-      let yearInc: number;
-      if (mode === "begin") yearInc = month < firstMonth ? -1 : 0;
-      else yearInc = month < firstMonth ? 0 : 1;
-      d.setUTCFullYear(d.getUTCFullYear() + yearInc, firstMonth, 1);
-      d.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "QUARTER": {
-      const month = d.getUTCMonth();
-      const quarterFirstMonth = getQuarterFirstMonth(firstMonth, month);
-      if (mode === "begin") {
-        const yearInc = quarterFirstMonth > month ? -1 : 0;
-        d.setUTCFullYear(d.getUTCFullYear() + yearInc);
-        d.setUTCMonth(quarterFirstMonth, 1);
-      } else {
-        d.setUTCMonth(quarterFirstMonth + 3, 1);
-      }
-      d.setUTCHours(0, 0, 0, 0);
-      break;
-    }
-    case "MONTH":
-      d.setUTCDate(1);
-      d.setUTCHours(0, 0, 0, 0);
-      if (mode === "end") d.setUTCMonth(d.getUTCMonth() + 1);
-      break;
-    case "DAY":
-      d.setUTCHours(0, 0, 0, 0);
-      if (mode === "end") d.setUTCDate(d.getUTCDate() + 1);
-      break;
-    case "HOUR":
-      d.setUTCMinutes(0, 0, 0);
-      if (mode === "end") d.setUTCHours(d.getUTCHours() + 1);
-      break;
-    case "MINUTE":
-      d.setUTCSeconds(0, 0);
-      if (mode === "end") d.setUTCMinutes(d.getUTCMinutes() + 1);
-      break;
-  }
-  return d;
+  const opts = firstMonthOfYear ? { firstMonthOfYear } : undefined;
+  const truncated = truncateToInterval(date, unit, opts);
+  return mode === "end" ? advanceByInterval(truncated, unit, 1) : truncated;
 }
 
 export function resolveInstant(instant: TimeInstant, referenceDate: Date): Date {
