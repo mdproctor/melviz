@@ -3,6 +3,7 @@ import {
   computeAggregation,
   buildDistinctIntervals,
   buildFixedCalendarIntervals,
+  buildDynamicDateIntervals,
 } from "./group-eval.js";
 import type { CellValue, Column, ColumnId } from "./types.js";
 import { ColumnType } from "./types.js";
@@ -719,6 +720,221 @@ describe("buildFixedCalendarIntervals", () => {
       expect(intervals).toHaveLength(60);
       expect(intervals[30]!.rowIndices).toEqual([0]);
       expect(intervals[0]!.rowIndices).toEqual([1]);
+    });
+  });
+});
+
+describe("buildDynamicDateIntervals", () => {
+  describe("auto-sizing", () => {
+    it("multi-month span produces monthly buckets", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          ["2024-03-10T00:00:00.000Z"],
+          ["2024-05-20T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 12);
+
+      // Span is ~4 months → monthly buckets should fit within 12
+      expect(intervals.length).toBeGreaterThanOrEqual(4);
+      expect(intervals.length).toBeLessThanOrEqual(12);
+      // Monthly naming: "yyyy-MM"
+      expect(intervals[0]!.name).toMatch(/^\d{4}-\d{2}$/);
+    });
+
+    it("multi-year span produces yearly buckets", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2020-01-01T00:00:00.000Z"],
+          ["2024-06-15T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      // Span is ~4.5 years → yearly buckets
+      expect(intervals.length).toBeGreaterThanOrEqual(4);
+      expect(intervals.length).toBeLessThanOrEqual(10);
+      // Yearly naming: "yyyy"
+      expect(intervals[0]!.name).toMatch(/^\d{4}$/);
+    });
+  });
+
+  describe("preferredUnit enforcement", () => {
+    it("never uses a finer granularity than preferredUnit", () => {
+      // Small span that would normally produce daily or hourly buckets
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-01T00:00:00.000Z"],
+          ["2024-01-03T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 100, {
+        preferredUnit: "MONTH",
+      });
+
+      // With preferred MONTH, should get monthly buckets even for a 2-day span
+      // Naming should be "yyyy-MM"
+      expect(intervals[0]!.name).toMatch(/^\d{4}-\d{2}$/);
+    });
+  });
+
+  describe("calendar-aligned boundaries", () => {
+    it("months start on the 1st", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          ["2024-02-20T00:00:00.000Z"],
+          ["2024-03-10T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 12);
+
+      // All dates assigned; boundaries should be calendar-aligned
+      expect(intervals.length).toBeGreaterThanOrEqual(3);
+      // First interval starts at 2024-01 (truncated from Jan 15)
+      expect(intervals[0]!.name).toBe("2024-01");
+      // Each row assigned to exactly one interval
+      const allRows = intervals.flatMap((iv) => [...iv.rowIndices]).sort((a, b) => a - b);
+      expect(allRows).toEqual([0, 1, 2]);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("single date produces single interval", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [["2024-06-15T12:30:00.000Z"]],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      expect(intervals).toHaveLength(1);
+      expect(intervals[0]!.rowIndices).toEqual([0]);
+    });
+
+    it("empty dates produce empty result", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      expect(intervals).toHaveLength(0);
+    });
+
+    it("null dates are skipped", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          [null],
+          ["2024-03-10T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 12);
+
+      const allRows = intervals.flatMap((iv) => [...iv.rowIndices]);
+      expect(allRows).toContain(0);
+      expect(allRows).toContain(2);
+      expect(allRows).not.toContain(1);
+    });
+
+    it("two identical dates produce single interval", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-06-15T00:00:00.000Z"],
+          ["2024-06-15T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      expect(intervals).toHaveLength(1);
+      expect(intervals[0]!.rowIndices).toEqual([0, 1]);
+    });
+  });
+
+  describe("interval naming", () => {
+    it("year intervals use 'yyyy' format", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2020-06-01T00:00:00.000Z"],
+          ["2024-06-01T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      for (const iv of intervals) {
+        expect(iv.name).toMatch(/^\d{4}$/);
+      }
+    });
+
+    it("hour intervals use 'yyyy-MM-dd HH' format", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T10:30:00.000Z"],
+          ["2024-01-15T14:45:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      for (const iv of intervals) {
+        expect(iv.name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}$/);
+      }
+    });
+
+    it("minute intervals use 'yyyy-MM-dd HH:mm' format", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T10:30:00.000Z"],
+          ["2024-01-15T10:35:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      for (const iv of intervals) {
+        expect(iv.name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+      }
+    });
+
+    it("second intervals use 'yyyy-MM-dd HH:mm:ss' format", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T10:30:00.000Z"],
+          ["2024-01-15T10:30:05.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 10);
+
+      for (const iv of intervals) {
+        expect(iv.name).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+      }
+    });
+  });
+
+  describe("minValue/maxValue", () => {
+    it("sets minValue and maxValue on each interval", () => {
+      const ds = toTypedDataSet({
+        columns: [col("d", "Date", ColumnType.DATE)],
+        data: [
+          ["2024-01-15T00:00:00.000Z"],
+          ["2024-03-10T00:00:00.000Z"],
+        ],
+      });
+      const intervals = buildDynamicDateIntervals(ds, "d" as ColumnId, 12);
+
+      for (const iv of intervals) {
+        expect(iv.minValue).toBeInstanceOf(Date);
+        expect(iv.maxValue).toBeInstanceOf(Date);
+      }
     });
   });
 });

@@ -3,6 +3,12 @@ import { ColumnType } from "./types.js";
 import type { Aggregation, Interval, IntervalList } from "./group.js";
 import type { FixedCalendarUnit } from "./group.js";
 import type { Month, DayOfWeek } from "./date-interval.js";
+import type { DateIntervalType } from "./date-interval.js";
+import {
+  APPROXIMATE_DURATION_MS,
+  truncateToInterval,
+  advanceByInterval,
+} from "./date-interval.js";
 
 export function computeAggregation(
   fn: Aggregation,
@@ -366,5 +372,145 @@ function getFixedBucketIndex(
 
     case "SECOND":
       return d.getUTCSeconds();
+  }
+}
+
+/**
+ * Ordered list of DateIntervalTypes from finest to coarsest,
+ * excluding sub-second, DAY_OF_WEEK, and WEEK per spec §5.
+ */
+const DATE_INTERVAL_ORDER: readonly DateIntervalType[] = [
+  "SECOND", "MINUTE", "HOUR", "DAY", "MONTH", "QUARTER",
+  "YEAR", "DECADE", "CENTURY", "MILLENIUM",
+];
+
+export function buildDynamicDateIntervals(
+  ds: TypedDataSet,
+  sourceId: ColumnId,
+  maxIntervals: number,
+  opts?: { preferredUnit?: DateIntervalType; firstMonthOfYear?: Month },
+): IntervalList {
+  // 1. Collect non-null DATE values with row indices
+  const entries: { rowIdx: number; date: Date }[] = [];
+  for (let rowIdx = 0; rowIdx < ds.rows.length; rowIdx++) {
+    const row = ds.rows[rowIdx]!;
+    const cellValue = row.cell(sourceId);
+    if (cellValue.type === ColumnType.DATE) {
+      entries.push({ rowIdx, date: cellValue.value });
+    }
+  }
+
+  if (entries.length === 0) {
+    return Object.freeze([]);
+  }
+
+  // 2. Sort by date ascending
+  entries.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const minDate = entries[0]!.date;
+  const maxDate = entries[entries.length - 1]!.date;
+
+  // 3. If min === max or only one date: single interval
+  if (minDate.getTime() === maxDate.getTime()) {
+    return Object.freeze([{
+      name: formatIntervalName(minDate, "SECOND"),
+      index: 0,
+      rowIndices: Object.freeze(entries.map((e) => e.rowIdx)),
+      minValue: new Date(minDate),
+      maxValue: new Date(maxDate),
+    }]);
+  }
+
+  // 4. Compute span
+  const span = maxDate.getTime() - minDate.getTime();
+
+  // 5. Walk DateIntervalType order to find appropriate unit
+  let selectedType: DateIntervalType = "MILLENIUM";
+  for (const type of DATE_INTERVAL_ORDER) {
+    const numIntervals = span / APPROXIMATE_DURATION_MS[type];
+    if (numIntervals < maxIntervals) {
+      selectedType = type;
+      break;
+    }
+  }
+
+  // 6. Enforce preferredUnit — never go finer than preferred
+  if (opts?.preferredUnit !== undefined) {
+    const preferredIdx = DATE_INTERVAL_ORDER.indexOf(opts.preferredUnit);
+    const selectedIdx = DATE_INTERVAL_ORDER.indexOf(selectedType);
+    // If selected is finer (lower index) than preferred, use preferred
+    if (preferredIdx >= 0 && selectedIdx >= 0 && selectedIdx < preferredIdx) {
+      selectedType = opts.preferredUnit;
+    }
+  }
+
+  // 7. Generate boundaries
+  const truncOpts = opts?.firstMonthOfYear !== undefined
+    ? { firstMonthOfYear: opts.firstMonthOfYear }
+    : undefined;
+
+  let boundaryStart = truncateToInterval(minDate, selectedType, truncOpts);
+  const boundaries: Date[] = [boundaryStart];
+  while (boundaryStart.getTime() <= maxDate.getTime()) {
+    boundaryStart = advanceByInterval(boundaryStart, selectedType, 1);
+    boundaries.push(boundaryStart);
+  }
+
+  // 8. Build intervals from boundary pairs and assign rows
+  const intervals: Interval[] = [];
+  let entryIdx = 0;
+
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const intervalStart = boundaries[i]!;
+    const intervalEnd = boundaries[i + 1]!;
+    const rowIndices: number[] = [];
+
+    // Walk entries that fall within [intervalStart, intervalEnd)
+    while (entryIdx < entries.length && entries[entryIdx]!.date.getTime() < intervalEnd.getTime()) {
+      rowIndices.push(entries[entryIdx]!.rowIdx);
+      entryIdx++;
+    }
+
+    intervals.push({
+      name: formatIntervalName(intervalStart, selectedType),
+      index: i,
+      rowIndices: Object.freeze([...rowIndices]),
+      minValue: new Date(intervalStart),
+      maxValue: new Date(intervalEnd),
+    });
+  }
+
+  return Object.freeze(intervals);
+}
+
+function formatIntervalName(d: Date, unit: DateIntervalType): string {
+  const yyyy = String(d.getUTCFullYear()).padStart(4, "0");
+  const MM = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const HH = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  const ss = String(d.getUTCSeconds()).padStart(2, "0");
+
+  switch (unit) {
+    case "MILLENIUM":
+    case "CENTURY":
+    case "DECADE":
+    case "YEAR":
+      return yyyy;
+    case "QUARTER":
+    case "MONTH":
+      return `${yyyy}-${MM}`;
+    case "WEEK":
+    case "DAY":
+    case "DAY_OF_WEEK":
+      return `${yyyy}-${MM}-${dd}`;
+    case "HOUR":
+      return `${yyyy}-${MM}-${dd} ${HH}`;
+    case "MINUTE":
+      return `${yyyy}-${MM}-${dd} ${HH}:${mm}`;
+    case "SECOND":
+      return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
+    default:
+      return `${yyyy}-${MM}-${dd} ${HH}:${mm}:${ss}`;
   }
 }
