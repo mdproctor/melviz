@@ -148,21 +148,21 @@ export function truncateToInterval(
 
     case "DECADE": {
       const year = result.getUTCFullYear();
-      result.setUTCFullYear(Math.floor(year / 10) * 10, 0, 1);
+      result.setUTCFullYear(Math.floor(year / 10) * 10, firstMonth0Based, 1);
       result.setUTCHours(0, 0, 0, 0);
       return result;
     }
 
     case "CENTURY": {
       const year = result.getUTCFullYear();
-      result.setUTCFullYear(Math.floor(year / 100) * 100, 0, 1);
+      result.setUTCFullYear(Math.floor(year / 100) * 100, firstMonth0Based, 1);
       result.setUTCHours(0, 0, 0, 0);
       return result;
     }
 
     case "MILLENIUM": {
       const year = result.getUTCFullYear();
-      result.setUTCFullYear(Math.floor(year / 1000) * 1000, 0, 1);
+      result.setUTCFullYear(Math.floor(year / 1000) * 1000, firstMonth0Based, 1);
       result.setUTCHours(0, 0, 0, 0);
       return result;
     }
