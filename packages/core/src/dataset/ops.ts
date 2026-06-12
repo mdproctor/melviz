@@ -10,6 +10,10 @@ import { applySort } from "./sort-eval.js";
 export type DataSetOp = FilterOp | GroupOp | SortOp;
 export type ResolvedDataSetOp = ResolvedFilterOp | GroupOp | SortOp;
 
+export interface ApplyOpsOptions {
+  readonly referenceDate?: Date;
+}
+
 export function validateOpOrder(ops: readonly DataSetOp[]): void {
   let pattern = "";
   for (const op of ops) {
@@ -30,6 +34,7 @@ export function validateOpOrder(ops: readonly DataSetOp[]): void {
 export function applyOps(
   ds: TypedDataSet,
   ops: readonly ResolvedDataSetOp[],
+  options?: ApplyOpsOptions,
 ): TypedDataSet {
   validateOpOrder(ops);
 
@@ -40,7 +45,7 @@ export function applyOps(
     const op = ops[i]!;
 
     if (op.type === "filter") {
-      current = applyFilter(current, op as ResolvedFilterOp);
+      current = applyFilter(current, op as ResolvedFilterOp, options?.referenceDate);
       i++;
     } else if (op.type === "group") {
       // Collect consecutive GroupOps for deferred materialisation

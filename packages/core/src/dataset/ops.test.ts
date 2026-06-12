@@ -7,6 +7,7 @@ import type { SortOp } from "./sort.js";
 import type { ColumnId, Column } from "./types.js";
 import { ColumnType } from "./types.js";
 import { toTypedDataSet } from "./conversion.js";
+import { parseTimeFrame } from "./timeframe.js";
 
 const filter: ResolvedFilterOp = { type: "filter", expressions: [] };
 const group: GroupOp = { type: "group", groupingKey: null, columns: [] };
@@ -159,5 +160,36 @@ describe("applyOps", () => {
     expect(result.rows).toHaveLength(6);
     expect(result.rows[0]!.number("revenue" as ColumnId)).toBe(50);
     expect(result.rows[5]!.number("revenue" as ColumnId)).toBe(300);
+  });
+
+  it("forwards referenceDate to filter for TIME_FRAME evaluation", () => {
+    const refDate = new Date(Date.UTC(2024, 5, 15)); // June 15, 2024
+    const timeFrame = parseTimeFrame("begin[year] till end[year]");
+
+    const ds = toTypedDataSet({
+      columns: [
+        col("date", "Date", ColumnType.DATE),
+        col("label", "Label", ColumnType.LABEL),
+      ],
+      data: [
+        ["2024-03-01T00:00:00.000Z", "in-range"],
+        ["2023-06-01T00:00:00.000Z", "out-of-range"],
+        ["2024-11-01T00:00:00.000Z", "in-range"],
+      ],
+    });
+
+    const filter: ResolvedFilterOp = {
+      type: "filter",
+      expressions: [{
+        type: "date",
+        columnId: "date" as ColumnId,
+        filter: { fn: "TIME_FRAME", timeFrame },
+      }],
+    };
+
+    const result = applyOps(ds, [filter], { referenceDate: refDate });
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0]!.text("label" as ColumnId)).toBe("in-range");
+    expect(result.rows[1]!.text("label" as ColumnId)).toBe("in-range");
   });
 });
