@@ -3,7 +3,7 @@ import { applyFilter } from "./filter-eval.js";
 import { toTypedDataSet } from "./conversion.js";
 import type { Column, ColumnId, TypedDataSet } from "./types.js";
 import { ColumnType } from "./types.js";
-import type { FilterExpression, NumericFilter, StringFilter, DateFilter } from "./filter.js";
+import type { ResolvedFilterExpression, NumericFilter, StringFilter, DateFilter } from "./filter.js";
 import { parseTimeFrame } from "./timeframe.js";
 
 function col(id: string, name: string, type: ColumnType): Column {
@@ -17,15 +17,15 @@ function numericDataSet(): TypedDataSet {
   });
 }
 
-function nf(filter: NumericFilter): FilterExpression {
+function nf(filter: NumericFilter): ResolvedFilterExpression {
   return { type: "numeric", columnId: "val" as ColumnId, filter };
 }
 
-function sf(filter: StringFilter): FilterExpression {
+function sf(filter: StringFilter): ResolvedFilterExpression {
   return { type: "string", columnId: "name" as ColumnId, filter };
 }
 
-function df(filter: DateFilter): FilterExpression {
+function df(filter: DateFilter): ResolvedFilterExpression {
   return { type: "date", columnId: "date" as ColumnId, filter };
 }
 

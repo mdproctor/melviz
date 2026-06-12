@@ -51,13 +51,31 @@ export type DateFilter =
   | { readonly fn: "BETWEEN"; readonly low: Date; readonly high: Date }
   | { readonly fn: "TIME_FRAME"; readonly timeFrame: TimeFrame };
 
-export type FilterExpression =
+export type FilterExprTree<Leaf> =
+  | Leaf
+  | { readonly type: "and"; readonly children: readonly FilterExprTree<Leaf>[] }
+  | { readonly type: "or"; readonly children: readonly FilterExprTree<Leaf>[] }
+  | { readonly type: "not"; readonly child: FilterExprTree<Leaf> };
+
+export type ResolvedLeaf =
   | { readonly type: "numeric"; readonly columnId: ColumnId; readonly filter: NumericFilter }
   | { readonly type: "string"; readonly columnId: ColumnId; readonly filter: StringFilter }
-  | { readonly type: "date"; readonly columnId: ColumnId; readonly filter: DateFilter }
-  | { readonly type: "and"; readonly children: readonly FilterExpression[] }
-  | { readonly type: "or"; readonly children: readonly FilterExpression[] }
-  | { readonly type: "not"; readonly child: FilterExpression };
+  | { readonly type: "date"; readonly columnId: ColumnId; readonly filter: DateFilter };
+
+export type UnresolvedLeaf = {
+  readonly type: "unresolved";
+  readonly columnId: ColumnId;
+  readonly fn: CoreFunctionType;
+  readonly args: readonly string[];
+};
+
+export type ResolvedFilterExpression = FilterExprTree<ResolvedLeaf>;
+export type FilterExpression = FilterExprTree<ResolvedLeaf | UnresolvedLeaf>;
+
+export interface ResolvedFilterOp {
+  readonly type: "filter";
+  readonly expressions: readonly ResolvedFilterExpression[];
+}
 
 export interface FilterOp {
   readonly type: "filter";
