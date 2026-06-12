@@ -3,7 +3,7 @@ import { applyFilter } from "./filter-eval.js";
 import { toTypedDataSet } from "./conversion.js";
 import type { Column, ColumnId, TypedDataSet } from "./types.js";
 import { ColumnType } from "./types.js";
-import type { FilterExpression, NumericFilter, StringFilter, DateFilter } from "./filter.js";
+import type { ResolvedFilterExpression, NumericFilter, StringFilter, DateFilter } from "./filter.js";
 import { parseTimeFrame } from "./timeframe.js";
 
 function col(id: string, name: string, type: ColumnType): Column {
@@ -17,15 +17,15 @@ function numericDataSet(): TypedDataSet {
   });
 }
 
-function nf(filter: NumericFilter): FilterExpression {
+function nf(filter: NumericFilter): ResolvedFilterExpression {
   return { type: "numeric", columnId: "val" as ColumnId, filter };
 }
 
-function sf(filter: StringFilter): FilterExpression {
+function sf(filter: StringFilter): ResolvedFilterExpression {
   return { type: "string", columnId: "name" as ColumnId, filter };
 }
 
-function df(filter: DateFilter): FilterExpression {
+function df(filter: DateFilter): ResolvedFilterExpression {
   return { type: "date", columnId: "date" as ColumnId, filter };
 }
 
@@ -313,6 +313,48 @@ describe("applyFilter — date", () => {
     expect(nullResult.rows).toHaveLength(1);
     const notNullResult = applyFilter(ds, { type: "filter", expressions: [df({ fn: "NOT_NULL" })] });
     expect(notNullResult.rows).toHaveLength(1);
+  });
+});
+
+describe("applyFilter — date IN/NOT_IN", () => {
+  function dateDataSetForInNotIn(): TypedDataSet {
+    return toTypedDataSet({
+      columns: [col("date", "Date", ColumnType.DATE)],
+      data: [
+        ["2024-01-15T00:00:00.000Z"],
+        ["2024-06-01T00:00:00.000Z"],
+        ["2024-09-20T00:00:00.000Z"],
+      ],
+    });
+  }
+
+  it("IN matches rows with dates in the set", () => {
+    const jan = new Date(Date.UTC(2024, 0, 15));
+    const sep = new Date(Date.UTC(2024, 8, 20));
+    const result = applyFilter(dateDataSetForInNotIn(), { type: "filter", expressions: [df({ fn: "IN", values: [jan, sep] })] });
+    expect(result.rows).toHaveLength(2);
+  });
+
+  it("IN with no matches returns empty", () => {
+    const feb = new Date(Date.UTC(2024, 1, 1));
+    const result = applyFilter(dateDataSetForInNotIn(), { type: "filter", expressions: [df({ fn: "IN", values: [feb] })] });
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it("NOT_IN excludes matching rows", () => {
+    const jan = new Date(Date.UTC(2024, 0, 15));
+    const result = applyFilter(dateDataSetForInNotIn(), { type: "filter", expressions: [df({ fn: "NOT_IN", values: [jan] })] });
+    expect(result.rows).toHaveLength(2);
+  });
+
+  it("IN with NULL cell returns false", () => {
+    const ds = toTypedDataSet({
+      columns: [col("date", "Date", ColumnType.DATE)],
+      data: [[null]],
+    });
+    const jan = new Date(Date.UTC(2024, 0, 15));
+    const result = applyFilter(ds, { type: "filter", expressions: [df({ fn: "IN", values: [jan] })] });
+    expect(result.rows).toHaveLength(0);
   });
 });
 

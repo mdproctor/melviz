@@ -188,7 +188,7 @@ function compareValues(a: CellValue, b: CellValue): number {
     (a.type === ColumnType.TEXT || a.type === ColumnType.LABEL) &&
     (b.type === ColumnType.TEXT || b.type === ColumnType.LABEL)
   ) {
-    return a.value.localeCompare(b.value);
+    return a.value < b.value ? -1 : a.value > b.value ? 1 : 0;
   }
 
   throw new Error(`Cannot compare values of types ${a.type} and ${b.type}`);

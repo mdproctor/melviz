@@ -1,4 +1,4 @@
-import type { FilterOp } from "./filter.js";
+import type { FilterOp, ResolvedFilterOp } from "./filter.js";
 import type { GroupOp } from "./group.js";
 import type { SortOp } from "./sort.js";
 import { DataSetError } from "./errors.js";
@@ -8,6 +8,7 @@ import { applyGroup, applyGroupSequence } from "./group-eval.js";
 import { applySort } from "./sort-eval.js";
 
 export type DataSetOp = FilterOp | GroupOp | SortOp;
+export type ResolvedDataSetOp = ResolvedFilterOp | GroupOp | SortOp;
 
 export function validateOpOrder(ops: readonly DataSetOp[]): void {
   let pattern = "";
@@ -28,7 +29,7 @@ export function validateOpOrder(ops: readonly DataSetOp[]): void {
 
 export function applyOps(
   ds: TypedDataSet,
-  ops: readonly DataSetOp[],
+  ops: readonly ResolvedDataSetOp[],
 ): TypedDataSet {
   validateOpOrder(ops);
 
@@ -39,7 +40,7 @@ export function applyOps(
     const op = ops[i]!;
 
     if (op.type === "filter") {
-      current = applyFilter(current, op);
+      current = applyFilter(current, op as ResolvedFilterOp);
       i++;
     } else if (op.type === "group") {
       // Collect consecutive GroupOps for deferred materialisation

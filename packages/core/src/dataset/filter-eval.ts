@@ -1,5 +1,5 @@
 import type { CellValue, TypedDataSet, TypedRow } from "./types.js";
-import type { FilterOp, FilterExpression, NumericFilter, StringFilter, DateFilter } from "./filter.js";
+import type { ResolvedFilterOp, ResolvedFilterExpression, NumericFilter, StringFilter, DateFilter } from "./filter.js";
 import type { TimeFrame } from "./timeframe.js";
 import { resolveTimeFrame } from "./timeframe.js";
 
@@ -7,7 +7,7 @@ type ResolvedTimeFrames = Map<TimeFrame, { from: Date; to: Date }>;
 
 export function applyFilter(
   ds: TypedDataSet,
-  op: FilterOp,
+  op: ResolvedFilterOp,
   referenceDate?: Date,
 ): TypedDataSet {
   const ref = referenceDate ?? new Date();
@@ -19,7 +19,7 @@ export function applyFilter(
 }
 
 function preResolveTimeFrames(
-  expressions: readonly FilterExpression[],
+  expressions: readonly ResolvedFilterExpression[],
   referenceDate: Date,
 ): ResolvedTimeFrames {
   const resolved: ResolvedTimeFrames = new Map();
@@ -35,8 +35,8 @@ function preResolveTimeFrames(
 }
 
 function walkExpressions(
-  expressions: readonly FilterExpression[],
-  visitor: (expr: FilterExpression) => void,
+  expressions: readonly ResolvedFilterExpression[],
+  visitor: (expr: ResolvedFilterExpression) => void,
 ): void {
   for (const expr of expressions) {
     visitor(expr);
@@ -50,7 +50,7 @@ function walkExpressions(
 
 function evaluateExpression(
   row: TypedRow,
-  expr: FilterExpression,
+  expr: ResolvedFilterExpression,
   resolved: ResolvedTimeFrames,
 ): boolean {
   switch (expr.type) {
@@ -166,5 +166,7 @@ function evaluateDateFilter(cell: CellValue, filter: DateFilter, resolved: Resol
       if (!range) return false;
       return value >= range.from.getTime() && value <= range.to.getTime();
     }
+    case "IN": return filter.values.some((d) => d.getTime() === value);
+    case "NOT_IN": return !filter.values.some((d) => d.getTime() === value);
   }
 }

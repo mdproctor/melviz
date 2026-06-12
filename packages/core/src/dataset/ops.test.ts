@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { validateOpOrder, applyOps } from "./ops.js";
 import type { DataSetOp } from "./ops.js";
-import type { FilterOp } from "./filter.js";
+import type { ResolvedFilterOp } from "./filter.js";
 import type { GroupOp } from "./group.js";
 import type { SortOp } from "./sort.js";
 import type { ColumnId, Column } from "./types.js";
 import { ColumnType } from "./types.js";
 import { toTypedDataSet } from "./conversion.js";
 
-const filter: FilterOp = { type: "filter", expressions: [] };
+const filter: ResolvedFilterOp = { type: "filter", expressions: [] };
 const group: GroupOp = { type: "group", groupingKey: null, columns: [] };
 const sort: SortOp = { type: "sort", columns: [{ columnId: "x" as ColumnId, order: "ASCENDING" }] };
 
@@ -74,7 +74,7 @@ describe("applyOps", () => {
   });
 
   it("filter only", () => {
-    const filter: FilterOp = {
+    const filter: ResolvedFilterOp = {
       type: "filter",
       expressions: [{
         type: "numeric",
@@ -87,7 +87,7 @@ describe("applyOps", () => {
   });
 
   it("filter → group → sort pipeline", () => {
-    const filter: FilterOp = {
+    const filter: ResolvedFilterOp = {
       type: "filter",
       expressions: [{
         type: "numeric",
@@ -131,7 +131,7 @@ describe("applyOps", () => {
 
   it("invalid ordering → INVALID_OPERATION", () => {
     const group: GroupOp = { type: "group", groupingKey: null, columns: [] };
-    const filter: FilterOp = { type: "filter", expressions: [] };
+    const filter: ResolvedFilterOp = { type: "filter", expressions: [] };
     expect(() => applyOps(salesData, [group, filter])).toThrow("INVALID_OPERATION");
   });
 
