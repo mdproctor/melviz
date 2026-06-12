@@ -250,7 +250,7 @@ describe("parseLookup", () => {
         sourceId: "department",
         columnId: "department",
         strategy: { mode: "distinct" },
-        maxIntervals: 100,
+        maxIntervals: 15,
         emptyIntervals: false,
         ascendingOrder: true,
       },

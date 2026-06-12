@@ -5,7 +5,8 @@ import {
   type DataSetLookupConstraints,
 } from "./lookup-constraints.js";
 import { createLookup } from "./lookup.js";
-import type { Column, ColumnId, DataSetId, ColumnType } from "./types.js";
+import { ColumnType } from "./types.js";
+import type { Column, ColumnId, DataSetId } from "./types.js";
 import type { GroupOp } from "./group.js";
 import type { ResolvedFilterOp } from "./filter.js";
 
@@ -17,10 +18,28 @@ function col(id: string, type: ColumnType): Column {
   return { id: id as ColumnId, type };
 }
 
+function groupingKey(id: string) {
+  return {
+    sourceId: id as ColumnId,
+    columnId: id as ColumnId,
+    strategy: { mode: "distinct" as const },
+    maxIntervals: 15,
+    emptyIntervals: false,
+    ascendingOrder: true,
+  };
+}
+
 function groupOp(keyId: string | null, ...columnIds: string[]): GroupOp {
   return {
     type: "group",
-    groupingKey: keyId ? (keyId as ColumnId) : null,
+    groupingKey: keyId ? {
+      sourceId: keyId as ColumnId,
+      columnId: keyId as ColumnId,
+      strategy: { mode: "distinct" },
+      maxIntervals: 15,
+      emptyIntervals: false,
+      ascendingOrder: true,
+    } : null,
     columns: columnIds.map((id) => ({
       kind: "aggregate",
       sourceId: id as ColumnId,
@@ -102,7 +121,7 @@ describe("validateLookup", () => {
     it("detects too many groups (key + select)", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [
           { kind: "select", sourceId: "y" as ColumnId, columnId: "y" as ColumnId },
           { kind: "aggregate", sourceId: "z" as ColumnId, columnId: "z" as ColumnId, fn: { fn: "COUNT" } },
@@ -119,7 +138,7 @@ describe("validateLookup", () => {
     it("allows maxGroups groups exactly", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [
           { kind: "select", sourceId: "y" as ColumnId, columnId: "y" as ColumnId },
           { kind: "aggregate", sourceId: "z" as ColumnId, columnId: "z" as ColumnId, fn: { fn: "COUNT" } },
@@ -135,7 +154,7 @@ describe("validateLookup", () => {
     it("no violation when maxGroups is undefined", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [
           { kind: "select", sourceId: "y" as ColumnId, columnId: "y" as ColumnId },
           { kind: "select", sourceId: "z" as ColumnId, columnId: "z" as ColumnId },
@@ -192,13 +211,13 @@ describe("validateLookup", () => {
     it("detects type mismatch for key column (always LABEL)", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [{ kind: "aggregate", sourceId: "y" as ColumnId, columnId: "y" as ColumnId, fn: { fn: "COUNT" } }],
       };
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["NUMBER"]],
+        columnTypes: [[ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -210,13 +229,13 @@ describe("validateLookup", () => {
     it("accepts key column when LABEL expected", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [{ kind: "aggregate", sourceId: "y" as ColumnId, columnId: "y" as ColumnId, fn: { fn: "COUNT" } }],
       };
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"], ["NUMBER"]],
+        columnTypes: [[ColumnType.LABEL], [ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -232,7 +251,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"]],
+        columnTypes: [[ColumnType.LABEL]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -249,7 +268,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["NUMBER"]],
+        columnTypes: [[ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -270,7 +289,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["NUMBER"], ["NUMBER"], ["NUMBER"], ["NUMBER"]],
+        columnTypes: [[ColumnType.NUMBER], [ColumnType.NUMBER], [ColumnType.NUMBER], [ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -286,7 +305,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["TEXT"]],
+        columnTypes: [[ColumnType.TEXT]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -302,7 +321,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["NUMBER"]],
+        columnTypes: [[ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -320,10 +339,10 @@ describe("validateLookup", () => {
         ],
       };
       const lookup = createLookup(dsId("test"), [group]);
-      const cols = [col("x", "DATE"), col("y", "NUMBER")];
+      const cols = [col("x", ColumnType.DATE), col("y", ColumnType.NUMBER)];
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["DATE"], ["NUMBER"]],
+        columnTypes: [[ColumnType.DATE], [ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints, cols);
@@ -337,10 +356,10 @@ describe("validateLookup", () => {
         columns: [{ kind: "aggregate", sourceId: "x" as ColumnId, columnId: "x" as ColumnId, fn: { fn: "MIN" } }],
       };
       const lookup = createLookup(dsId("test"), [group]);
-      const cols = [col("x", "DATE")];
+      const cols = [col("x", ColumnType.DATE)];
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["NUMBER"]],
+        columnTypes: [[ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints, cols);
@@ -357,7 +376,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["NUMBER"]],
+        columnTypes: [[ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints); // no columns param
@@ -367,14 +386,14 @@ describe("validateLookup", () => {
     it("validates select with source column type", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [{ kind: "select", sourceId: "y" as ColumnId, columnId: "y" as ColumnId }],
       };
       const lookup = createLookup(dsId("test"), [group]);
-      const cols = [col("x", "LABEL"), col("y", "TEXT")];
+      const cols = [col("x", ColumnType.LABEL), col("y", ColumnType.TEXT)];
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"], ["TEXT"]],
+        columnTypes: [[ColumnType.LABEL], [ColumnType.TEXT]],
       };
 
       const violations = validateLookup(lookup, constraints, cols);
@@ -384,14 +403,14 @@ describe("validateLookup", () => {
     it("detects select type mismatch", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [{ kind: "select", sourceId: "y" as ColumnId, columnId: "y" as ColumnId }],
       };
       const lookup = createLookup(dsId("test"), [group]);
-      const cols = [col("x", "LABEL"), col("y", "DATE")];
+      const cols = [col("x", ColumnType.LABEL), col("y", ColumnType.DATE)];
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"], ["NUMBER"]],
+        columnTypes: [[ColumnType.LABEL], [ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints, cols);
@@ -402,13 +421,13 @@ describe("validateLookup", () => {
     it("skips select validation when columns absent", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [{ kind: "select", sourceId: "y" as ColumnId, columnId: "y" as ColumnId }],
       };
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"], ["NUMBER"]],
+        columnTypes: [[ColumnType.LABEL], [ColumnType.NUMBER]],
       };
 
       const violations = validateLookup(lookup, constraints); // no columns param
@@ -424,7 +443,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL", "NUMBER", "TEXT"]],
+        columnTypes: [[ColumnType.LABEL, ColumnType.NUMBER, ColumnType.TEXT]],
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -494,7 +513,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [groupOp("x", "y", "z")]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"], ["NUMBER"]],
+        columnTypes: [[ColumnType.LABEL], [ColumnType.NUMBER]],
         extraColumnsAllowed: false,
       };
 
@@ -507,7 +526,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [groupOp("x", "y", "z")]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"], ["NUMBER"]],
+        columnTypes: [[ColumnType.LABEL], [ColumnType.NUMBER]],
         extraColumnsAllowed: true,
       };
 
@@ -520,7 +539,7 @@ describe("validateLookup", () => {
     it("detects extra column type mismatch", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [
           { kind: "aggregate", sourceId: "y" as ColumnId, columnId: "y" as ColumnId, fn: { fn: "COUNT" } },
           { kind: "aggregate", sourceId: "z" as ColumnId, columnId: "z" as ColumnId, fn: { fn: "JOIN" } },
@@ -529,9 +548,9 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"]],
+        columnTypes: [[ColumnType.LABEL]],
         extraColumnsAllowed: true,
-        extraColumnsType: "NUMBER",
+        extraColumnsType: ColumnType.NUMBER,
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -543,7 +562,7 @@ describe("validateLookup", () => {
     it("allows extra columns with correct type", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [
           { kind: "aggregate", sourceId: "y" as ColumnId, columnId: "y" as ColumnId, fn: { fn: "COUNT" } },
           { kind: "aggregate", sourceId: "z" as ColumnId, columnId: "z" as ColumnId, fn: { fn: "SUM" } },
@@ -552,9 +571,9 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"]],
+        columnTypes: [[ColumnType.LABEL]],
         extraColumnsAllowed: true,
-        extraColumnsType: "NUMBER",
+        extraColumnsType: ColumnType.NUMBER,
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -564,7 +583,7 @@ describe("validateLookup", () => {
     it("skips extra column type check when extraColumnsType is undefined", () => {
       const group: GroupOp = {
         type: "group",
-        groupingKey: "x" as ColumnId,
+        groupingKey: groupingKey("x"),
         columns: [
           { kind: "aggregate", sourceId: "y" as ColumnId, columnId: "y" as ColumnId, fn: { fn: "COUNT" } },
           { kind: "aggregate", sourceId: "z" as ColumnId, columnId: "z" as ColumnId, fn: { fn: "JOIN" } },
@@ -573,7 +592,7 @@ describe("validateLookup", () => {
       const lookup = createLookup(dsId("test"), [group]);
       const constraints: DataSetLookupConstraints = {
         ...DEFAULT_CONSTRAINTS,
-        columnTypes: [["LABEL"]],
+        columnTypes: [[ColumnType.LABEL]],
         extraColumnsAllowed: true,
         extraColumnsType: undefined,
       };
@@ -599,7 +618,7 @@ describe("validateLookup", () => {
         ...DEFAULT_CONSTRAINTS,
         filterAllowed: false,
         minColumns: 3,
-        columnTypes: [["LABEL"]], // expect LABEL, got NUMBER
+        columnTypes: [[ColumnType.LABEL]], // expect LABEL, got NUMBER
       };
 
       const violations = validateLookup(lookup, constraints);
@@ -618,7 +637,7 @@ describe("validateLookup", () => {
         ...DEFAULT_CONSTRAINTS,
         minColumns: 3,
         maxColumns: 5,
-        columnTypes: [["LABEL"]],
+        columnTypes: [[ColumnType.LABEL]],
         uniqueColumnIds: true,
       };
 

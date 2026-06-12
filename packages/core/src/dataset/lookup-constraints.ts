@@ -1,4 +1,5 @@
-import type { Column, ColumnType } from "./types.js";
+import { ColumnType } from "./types.js";
+import type { Column } from "./types.js";
 import type { DataSetLookup } from "./lookup.js";
 import type { GroupOp, ResultColumn, Aggregation } from "./group.js";
 
@@ -103,8 +104,8 @@ export function validateLookup(
   if (lastGroup.groupingKey !== null) {
     resultColumns.push({
       kind: "key",
-      sourceId: lastGroup.groupingKey,
-      columnId: lastGroup.groupingKey,
+      sourceId: lastGroup.groupingKey.sourceId,
+      columnId: lastGroup.groupingKey.columnId,
     });
   }
   resultColumns.push(...lastGroup.columns);
@@ -196,7 +197,7 @@ export function validateLookup(
 
 function inferColumnType(col: ResultColumn, columns: readonly Column[] | undefined): ColumnType | undefined {
   if (col.kind === "key") {
-    return "LABEL";
+    return ColumnType.LABEL;
   }
 
   if (col.kind === "aggregate") {
@@ -223,10 +224,10 @@ function inferAggregateType(
     case "SUM":
     case "AVERAGE":
     case "MEDIAN":
-      return "NUMBER";
+      return ColumnType.NUMBER;
 
     case "JOIN":
-      return "TEXT";
+      return ColumnType.TEXT;
 
     case "MIN":
     case "MAX":

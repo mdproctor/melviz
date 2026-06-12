@@ -28,19 +28,19 @@ const filterLeafSchema = z.object({
 });
 
 // Recursive filter node schema
-type FilterNodeInput = z.infer<typeof filterLeafSchema>
+type FilterNodeInput = z.output<typeof filterLeafSchema>
   | { and: FilterNodeInput[] }
   | { or: FilterNodeInput[] }
   | { not: FilterNodeInput };
 
-const filterNodeSchema: z.ZodType<FilterNodeInput> = z.lazy(() =>
+const filterNodeSchema = z.lazy(() =>
   z.union([
     filterLeafSchema,
     z.object({ and: z.array(filterNodeSchema) }),
     z.object({ or: z.array(filterNodeSchema) }),
     z.object({ not: filterNodeSchema }),
   ])
-);
+) as z.ZodType<FilterNodeInput>;
 
 // Aggregation function schema
 const aggregationFnSchema = z.enum([
@@ -78,7 +78,7 @@ const columnGroupSchema = z.object({
   strategy: groupStrategySchema,
   unit: fixedCalendarUnitSchema.optional(),
   preferredUnit: dateIntervalTypeSchema.optional(),
-  maxIntervals: z.number().default(100),
+  maxIntervals: z.number().default(15),
   emptyIntervals: z.boolean().default(false),
   ascendingOrder: z.boolean().default(true),
   firstMonthOfYear: monthSchema.optional(),
