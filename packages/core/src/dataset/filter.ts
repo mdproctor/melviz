@@ -49,7 +49,9 @@ export type DateFilter =
   | { readonly fn: "LOWER_THAN"; readonly value: Date }
   | { readonly fn: "LOWER_OR_EQUALS_TO"; readonly value: Date }
   | { readonly fn: "BETWEEN"; readonly low: Date; readonly high: Date }
-  | { readonly fn: "TIME_FRAME"; readonly timeFrame: TimeFrame };
+  | { readonly fn: "TIME_FRAME"; readonly timeFrame: TimeFrame }
+  | { readonly fn: "IN"; readonly values: readonly Date[] }
+  | { readonly fn: "NOT_IN"; readonly values: readonly Date[] };
 
 export type FilterExprTree<Leaf> =
   | Leaf

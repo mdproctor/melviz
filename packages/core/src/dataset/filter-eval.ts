@@ -166,5 +166,7 @@ function evaluateDateFilter(cell: CellValue, filter: DateFilter, resolved: Resol
       if (!range) return false;
       return value >= range.from.getTime() && value <= range.to.getTime();
     }
+    case "IN": return filter.values.some((d) => d.getTime() === value);
+    case "NOT_IN": return !filter.values.some((d) => d.getTime() === value);
   }
 }
