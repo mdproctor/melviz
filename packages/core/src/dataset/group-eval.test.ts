@@ -311,6 +311,45 @@ function col(id: string, name: string, type: ColumnType): Column {
   return { id: id as ColumnId, name, type };
 }
 
+describe("compareValues — codepoint order", () => {
+  it("MIN/MAX use Unicode codepoint order (uppercase before lowercase)", () => {
+    const ds = toTypedDataSet({
+      columns: [
+        col("label", "Label", ColumnType.LABEL),
+        col("dept", "Dept", ColumnType.LABEL),
+      ],
+      data: [
+        ["banana", "Sales"],
+        ["Apple", "Sales"],
+        ["cherry", "Sales"],
+      ],
+    });
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: {
+        sourceId: "dept" as ColumnId,
+        columnId: "dept" as ColumnId,
+        strategy: { mode: "distinct" },
+        maxIntervals: 100,
+        emptyIntervals: true,
+        ascendingOrder: true,
+      },
+      columns: [
+        { kind: "key", sourceId: "dept" as ColumnId, columnId: "dept_key" as ColumnId },
+        { kind: "aggregate", sourceId: "label" as ColumnId, columnId: "min_label" as ColumnId, fn: { fn: "MIN" } },
+        { kind: "aggregate", sourceId: "label" as ColumnId, columnId: "max_label" as ColumnId, fn: { fn: "MAX" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
+    // Codepoint order: 'A' (65) < 'b' (98) < 'c' (99)
+    // MIN should be "Apple", MAX should be "cherry"
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.text("min_label" as ColumnId)).toBe("Apple");
+    expect(result.rows[0]!.text("max_label" as ColumnId)).toBe("cherry");
+  });
+});
+
 describe("buildDistinctIntervals", () => {
   describe("LABEL columns", () => {
     it("creates one bucket per unique label value", () => {
