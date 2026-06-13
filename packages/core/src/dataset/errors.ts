@@ -9,7 +9,11 @@ export type DataSetErrorCode =
   | "TYPE_MISMATCH"
   | "UNKNOWN_PROVIDER"
   | "INVALID_OPERATION"
-  | "RESOLUTION_FAILED";
+  | "RESOLUTION_FAILED"
+  | "UNKNOWN_PRESET"
+  | "EXTRACTION_ERROR"
+  | "INVALID_DEFINITION"
+  | "EMPTY_RESULT";
 
 export class DataSetError extends Error {
   override readonly cause?: unknown;

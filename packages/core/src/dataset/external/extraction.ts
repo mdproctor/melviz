@@ -1,0 +1,362 @@
+import type { Column, ColumnId, ColumnType as ColumnTypeEnum, DataSet } from "../types.js";
+import { ColumnType } from "../types.js";
+import { DataSetError } from "../errors.js";
+import { toTypedDataSet } from "../conversion.js";
+import { parseCsv } from "./csv.js";
+import { parseMetrics } from "./metrics-parser.js";
+import { compileOrCached } from "../../expression/jsonata-bridge.js";
+import type {
+  FetchResult,
+  ExtractionResult,
+  PresetRegistry,
+  ExternalDataSetDef,
+  ExternalColumnDef,
+} from "./types.js";
+
+// ---------------------------------------------------------------------------
+// ISO 8601 date detection (subset: YYYY-MM-DD with optional time/zone)
+// ---------------------------------------------------------------------------
+
+const ISO_DATE_RE =
+  /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+
+function looksLikeIsoDate(value: string): boolean {
+  if (!ISO_DATE_RE.test(value)) return false;
+  const d = new Date(value);
+  return !Number.isNaN(d.getTime());
+}
+
+// ---------------------------------------------------------------------------
+// Stage 1: Parse — raw data to structured JS value
+// ---------------------------------------------------------------------------
+
+function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
+  const { data, contentType } = result;
+
+  // Already structured — pass through
+  if (typeof data !== "string") return data;
+
+  const raw = data as string;
+
+  // Empty string — nothing to parse
+  if (raw.trim() === "") {
+    throw new DataSetError("PARSE_FAILED", "Empty input data");
+  }
+
+  // Explicit CSV content type
+  if (contentType === "text/csv" || contentType === "application/csv") {
+    const csv = parseCsv(raw);
+    return csvToObjects(csv.headers, csv.rows);
+  }
+
+  // URL ending in "metrics" (no dot after "metrics") — Prometheus text format
+  if (def.url !== undefined && /\/metrics$/.test(def.url)) {
+    return parseMetrics(raw);
+  }
+
+  // Try JSON first
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    // Fallback: try CSV
+    try {
+      const csv = parseCsv(raw);
+      if (csv.headers.length === 0 && csv.rows.length === 0) {
+        throw new DataSetError("PARSE_FAILED", "No data could be parsed from input");
+      }
+      return csvToObjects(csv.headers, csv.rows);
+    } catch (e) {
+      if (e instanceof DataSetError) throw e;
+      throw new DataSetError("PARSE_FAILED", "Failed to parse input as JSON or CSV", e);
+    }
+  }
+}
+
+/** Convert CSV parse result into array of objects (Shape B). */
+function csvToObjects(
+  headers: string[],
+  rows: string[][],
+): Record<string, string>[] {
+  return rows.map((row) => {
+    const obj: Record<string, string> = {};
+    for (let i = 0; i < headers.length; i++) {
+      const key = headers[i];
+      if (key !== undefined) {
+        obj[key] = row[i] ?? "";
+      }
+    }
+    return obj;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2: Navigate / Extract
+// ---------------------------------------------------------------------------
+
+async function navigateAndExtract(
+  data: unknown,
+  def: ExternalDataSetDef,
+  presetRegistry: PresetRegistry,
+): Promise<unknown> {
+  let current = data;
+
+  // 2a. dataPath — dot-separated property navigation
+  if (def.dataPath !== undefined) {
+    const segments = def.dataPath.split(".");
+    for (const segment of segments) {
+      if (current === null || current === undefined || typeof current !== "object") {
+        throw new DataSetError(
+          "EXTRACTION_ERROR",
+          `Cannot navigate path "${def.dataPath}": segment "${segment}" does not exist`,
+        );
+      }
+      const next = (current as Record<string, unknown>)[segment];
+      if (next === undefined) {
+        throw new DataSetError(
+          "EXTRACTION_ERROR",
+          `Path "${def.dataPath}" not found: segment "${segment}" does not exist`,
+        );
+      }
+      current = next;
+    }
+  }
+
+  // 2b. type — preset lookup + JSONata evaluation
+  if (def.type !== undefined) {
+    const preset = presetRegistry.get(def.type);
+    if (!preset) {
+      throw new DataSetError("UNKNOWN_PRESET", `No preset found for type "${def.type}"`);
+    }
+    try {
+      const compiled = compileOrCached(preset.expression);
+      current = await compiled.evaluate(current);
+    } catch (e) {
+      if (e instanceof DataSetError) throw e;
+      throw new DataSetError(
+        "EXTRACTION_ERROR",
+        `Preset "${def.type}" evaluation failed: ${e instanceof Error ? e.message : String(e)}`,
+        e,
+      );
+    }
+  }
+
+  // 2c. expression — custom JSONata
+  if (def.expression !== undefined) {
+    try {
+      const compiled = compileOrCached(def.expression);
+      current = await compiled.evaluate(current);
+    } catch (e) {
+      if (e instanceof DataSetError) throw e;
+      throw new DataSetError(
+        "EXTRACTION_ERROR",
+        `Expression evaluation failed: ${e instanceof Error ? e.message : String(e)}`,
+        e,
+      );
+    }
+  }
+
+  return current;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3: Tabulate — recognized shape to DataSet wire format
+// ---------------------------------------------------------------------------
+
+interface ShapeAData {
+  columns: readonly { id: string; type: string; name?: string }[];
+  values: readonly (readonly unknown[])[];
+}
+
+function isShapeA(data: unknown): data is ShapeAData {
+  if (data === null || typeof data !== "object") return false;
+  const obj = data as Record<string, unknown>;
+  return Array.isArray(obj["columns"]) && Array.isArray(obj["values"]);
+}
+
+function isArrayOfObjects(data: unknown): data is Record<string, unknown>[] {
+  if (!Array.isArray(data) || data.length === 0) return false;
+  const first = data[0];
+  return first !== null && typeof first === "object" && !Array.isArray(first);
+}
+
+function isArrayOfArrays(data: unknown): data is unknown[][] {
+  if (!Array.isArray(data) || data.length === 0) return false;
+  return Array.isArray(data[0]);
+}
+
+function valueToString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return String(value);
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+function inferColumnType(values: unknown[]): ColumnTypeEnum {
+  // Sample non-null values to determine type
+  for (const val of values) {
+    if (val === null || val === undefined) continue;
+    if (typeof val === "number") return ColumnType.NUMBER;
+    if (typeof val === "string") {
+      if (looksLikeIsoDate(val)) return ColumnType.DATE;
+      // Check if numeric string
+      const n = Number(val);
+      if (!Number.isNaN(n) && val.trim() !== "") return ColumnType.NUMBER;
+    }
+  }
+  return ColumnType.LABEL;
+}
+
+function mapTypeString(type: string): ColumnTypeEnum {
+  switch (type.toLowerCase()) {
+    case "number":
+      return ColumnType.NUMBER;
+    case "date":
+      return ColumnType.DATE;
+    case "text":
+      return ColumnType.TEXT;
+    case "label":
+    default:
+      return ColumnType.LABEL;
+  }
+}
+
+function tabulateShapeA(data: ShapeAData): { columns: Column[]; rows: (string | null)[][] } {
+  const columns: Column[] = data.columns.map((c) => ({
+    id: c.id as ColumnId,
+    name: c.name ?? c.id,
+    type: mapTypeString(c.type),
+  }));
+
+  // JSONata auto-unwraps single-element arrays. If values is a flat array
+  // of primitives (not an array of arrays), wrap it as a single row.
+  let valueRows: readonly (readonly unknown[])[];
+  if (data.values.length > 0 && !Array.isArray(data.values[0])) {
+    valueRows = [data.values];
+  } else {
+    valueRows = data.values as readonly (readonly unknown[])[];
+  }
+
+  const rows: (string | null)[][] = valueRows.map((row) =>
+    Array.from({ length: columns.length }, (_, i) => valueToString(row[i])),
+  );
+
+  return { columns, rows };
+}
+
+function tabulateShapeB(data: Record<string, unknown>[]): { columns: Column[]; rows: (string | null)[][] } {
+  const first = data[0]!;
+  const keys = Object.keys(first);
+
+  // Sample values per column for type inference
+  const columns: Column[] = keys.map((key) => {
+    const values = data.map((obj) => obj[key]);
+    return {
+      id: key as ColumnId,
+      name: key,
+      type: inferColumnType(values),
+    };
+  });
+
+  const rows: (string | null)[][] = data.map((obj) =>
+    keys.map((key) => valueToString(obj[key])),
+  );
+
+  return { columns, rows };
+}
+
+function tabulateShapeC(data: unknown[][]): { columns: Column[]; rows: (string | null)[][] } {
+  const maxCols = data.reduce((max, row) => Math.max(max, row.length), 0);
+
+  // Sample values per column for type inference
+  const columns: Column[] = Array.from({ length: maxCols }, (_, i) => {
+    const values = data.map((row) => row[i]);
+    return {
+      id: `Column ${i}` as ColumnId,
+      name: `Column ${i}`,
+      type: inferColumnType(values),
+    };
+  });
+
+  const rows: (string | null)[][] = data.map((row) =>
+    Array.from({ length: maxCols }, (_, i) => valueToString(row[i])),
+  );
+
+  return { columns, rows };
+}
+
+function tabulate(
+  data: unknown,
+  explicitColumns: readonly ExternalColumnDef[] | undefined,
+): { dataset: DataSet; inferredColumns: boolean } {
+  let columns: Column[];
+  let rows: (string | null)[][];
+  let inferred: boolean;
+
+  if (isShapeA(data)) {
+    const result = tabulateShapeA(data);
+    columns = result.columns;
+    rows = result.rows;
+    inferred = true;
+  } else if (isArrayOfObjects(data)) {
+    const result = tabulateShapeB(data);
+    columns = result.columns;
+    rows = result.rows;
+    inferred = true;
+  } else if (isArrayOfArrays(data)) {
+    const result = tabulateShapeC(data);
+    columns = result.columns;
+    rows = result.rows;
+    inferred = true;
+  } else if (Array.isArray(data) && data.length === 0) {
+    throw new DataSetError("EMPTY_RESULT", "Extraction produced no data (empty array)");
+  } else {
+    throw new DataSetError("EXTRACTION_ERROR", "Unrecognized data shape");
+  }
+
+  // Apply explicit column definitions if provided
+  if (explicitColumns !== undefined) {
+    columns = explicitColumns.map((c) => ({
+      id: c.id,
+      name: c.name ?? c.id,
+      type: c.type,
+    }));
+    inferred = false;
+  }
+
+  // Check empty result (zero rows AND zero columns)
+  if (rows.length === 0 && columns.length === 0) {
+    throw new DataSetError("EMPTY_RESULT", "Extraction produced no data");
+  }
+
+  return { dataset: { columns, data: rows }, inferredColumns: inferred };
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4: Convert — DataSet wire format to TypedDataSet
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function extractDataSet(
+  result: FetchResult,
+  def: ExternalDataSetDef,
+  presetRegistry: PresetRegistry,
+): Promise<ExtractionResult> {
+  // Stage 1: Parse
+  const parsed = parseRaw(result, def);
+
+  // Stage 2: Navigate / Extract
+  const extracted = await navigateAndExtract(parsed, def, presetRegistry);
+
+  // Stage 3: Tabulate
+  const { dataset: wireDataSet, inferredColumns } = tabulate(extracted, def.columns);
+
+  // Stage 4: Convert to TypedDataSet
+  const dataset = toTypedDataSet(wireDataSet);
+
+  return { dataset, inferredColumns };
+}

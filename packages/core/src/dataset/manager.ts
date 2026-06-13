@@ -16,6 +16,7 @@ export interface DataSetManager {
   get(id: DataSetId): TypedDataSet | undefined;
   remove(id: DataSetId): boolean;
   has(id: DataSetId): boolean;
+  accumulate(id: DataSetId, dataset: TypedDataSet, maxRows?: number): void;
   lookup(query: DataSetLookup, options?: LookupOptions): TypedDataSet;
 }
 
@@ -62,6 +63,50 @@ class DataSetManagerImpl implements DataSetManager {
 
   has(id: DataSetId): boolean {
     return this.datasets.has(id);
+  }
+
+  accumulate(id: DataSetId, dataset: TypedDataSet, maxRows?: number): void {
+    if (dataset.rows.length === 0) {
+      if (!this.datasets.has(id)) {
+        this.datasets.set(id, dataset);
+      }
+      return;
+    }
+    const existing = this.datasets.get(id);
+    if (!existing) {
+      this.datasets.set(id, dataset);
+      return;
+    }
+
+    // Validate column schema compatibility before merging
+    if (existing.columns.length !== dataset.columns.length) {
+      throw new DataSetError(
+        "SCHEMA_MISMATCH",
+        `Column schema mismatch in accumulate: new dataset has ${dataset.columns.length} columns, expected ${existing.columns.length}`,
+      );
+    }
+    for (let i = 0; i < existing.columns.length; i++) {
+      const existingCol = existing.columns[i]!;
+      const newCol = dataset.columns[i]!;
+      if (existingCol.id !== newCol.id) {
+        throw new DataSetError(
+          "SCHEMA_MISMATCH",
+          `Column schema mismatch in accumulate: column "${newCol.id}" at position ${i}, expected "${existingCol.id}"`,
+        );
+      }
+      if (existingCol.type !== newCol.type) {
+        throw new DataSetError(
+          "SCHEMA_MISMATCH",
+          `Column schema mismatch in accumulate: column "${newCol.id}" has type ${newCol.type}, expected ${existingCol.type}`,
+        );
+      }
+    }
+
+    const combined = [...dataset.rows, ...existing.rows];
+    const rows = maxRows !== undefined && maxRows >= 0
+      ? combined.slice(0, maxRows)
+      : combined;
+    this.datasets.set(id, { columns: dataset.columns, rows });
   }
 
   lookup(query: DataSetLookup, options?: LookupOptions): TypedDataSet {

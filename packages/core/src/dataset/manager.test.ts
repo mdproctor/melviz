@@ -351,3 +351,83 @@ describe("DataSetManager — error paths", () => {
     expect(() => mgr.lookup(rawLookup)).toThrow("INVALID_OPERATION");
   });
 });
+
+describe("DataSetManager — accumulate", () => {
+  it("accumulate on empty registry behaves like register", () => {
+    const mgr = createDataSetManager();
+    const ds = testDataSet([["Alice", "100"]]);
+    mgr.accumulate(ID_A, ds);
+    const stored = mgr.get(ID_A);
+    expect(stored).toBeDefined();
+    expect(stored!.rows).toHaveLength(1);
+    expect(stored!.rows[0]!.text("name" as ColumnId)).toBe("Alice");
+  });
+
+  it("accumulate puts new rows first, then appends old rows", () => {
+    const mgr = createDataSetManager();
+    const old = testDataSet([["Alice", "100"]]);
+    mgr.register(ID_A, old);
+    const fresh = testDataSet([["Bob", "200"]]);
+    mgr.accumulate(ID_A, fresh);
+    const stored = mgr.get(ID_A)!;
+    expect(stored.rows).toHaveLength(2);
+    expect(stored.rows[0]!.text("name" as ColumnId)).toBe("Bob");
+    expect(stored.rows[1]!.text("name" as ColumnId)).toBe("Alice");
+  });
+
+  it("accumulate trims oldest rows when maxRows exceeded", () => {
+    const mgr = createDataSetManager();
+    const old = testDataSet([["Alice", "100"], ["Bob", "200"]]);
+    mgr.register(ID_A, old);
+    const fresh = testDataSet([["Charlie", "300"]]);
+    mgr.accumulate(ID_A, fresh, 2);
+    const stored = mgr.get(ID_A)!;
+    expect(stored.rows).toHaveLength(2);
+    expect(stored.rows[0]!.text("name" as ColumnId)).toBe("Charlie");
+    expect(stored.rows[1]!.text("name" as ColumnId)).toBe("Alice");
+  });
+
+  it("accumulate with zero new rows preserves existing dataset", () => {
+    const mgr = createDataSetManager();
+    const existing = testDataSet([["Alice", "100"]]);
+    mgr.register(ID_A, existing);
+    const empty = testDataSet([]);
+    mgr.accumulate(ID_A, empty);
+    const stored = mgr.get(ID_A)!;
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0]!.text("name" as ColumnId)).toBe("Alice");
+  });
+
+  it("accumulate with no maxRows appends all rows", () => {
+    const mgr = createDataSetManager();
+    const old = testDataSet([["Alice", "100"], ["Bob", "200"]]);
+    mgr.register(ID_A, old);
+    const fresh = testDataSet([["Charlie", "300"], ["Diana", "400"]]);
+    mgr.accumulate(ID_A, fresh);
+    const stored = mgr.get(ID_A)!;
+    expect(stored.rows).toHaveLength(4);
+    expect(stored.rows[0]!.text("name" as ColumnId)).toBe("Charlie");
+    expect(stored.rows[1]!.text("name" as ColumnId)).toBe("Diana");
+    expect(stored.rows[2]!.text("name" as ColumnId)).toBe("Alice");
+    expect(stored.rows[3]!.text("name" as ColumnId)).toBe("Bob");
+  });
+
+  it("accumulate throws SCHEMA_MISMATCH when column schemas differ", () => {
+    const mgr = createDataSetManager();
+    mgr.register(ID_A, testDataSet([["Alice", "100"]]));
+
+    // Different schema — LABEL column instead of NUMBER for amount
+    const differentSchema = toTypedDataSet({
+      columns: [
+        col("name", "Name", ColumnType.LABEL),
+        col("amount", "Amount", ColumnType.LABEL),
+      ],
+      data: [["Bob", "text"]],
+    });
+
+    expect(() => mgr.accumulate(ID_A, differentSchema)).toThrow(DataSetError);
+    // Existing dataset preserved
+    expect(mgr.get(ID_A)!.rows).toHaveLength(1);
+    expect(mgr.get(ID_A)!.rows[0]!.text("name" as ColumnId)).toBe("Alice");
+  });
+});
