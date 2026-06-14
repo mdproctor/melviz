@@ -43,7 +43,7 @@ Two data engines share the same model and operation semantics. The TS engine wor
 @casehub/data                       → jsonata, zod
 ```
 
-**The split:** `types.ts` contains `Component`, `GridItem`, `GridPlacement`, `AccessControl`, `ViewState`, `Site`, `PermissionContext` — the generic component primitives with zero external dependencies. These are the types extractable into a shared casehub-ui framework. `displayer-types.ts` and `page-types.ts` contain the data-component types (`DisplayerCommon`, `ChartSettings`, `PageProps`, `DataComponentDefaults`, etc.) which depend on `@casehub/data` for `DataSetLookup`, `DataSetOp`, `ColumnSettings`, `ExternalDataSetDef`.
+**The split:** `types.ts` contains `Component`, `GridItem`, `GridPlacement`, `AccessControl`, `PermissionContext`, `ALLOW_ALL` — the generic component primitives with zero external dependencies. These are the types extractable into a shared casehub-ui framework. `page-types.ts` contains `PageProps`, `PageSettings`, `ViewState`, `Site`, `DataComponentDefaults`, `LookupDefaults`, `DataSetDefaults` — all of which reference `@casehub/data` types (`ColumnId`, `DataSetId`, `ExternalDataSetDef`, `DataSetOp`). `displayer-types.ts` contains `DataComponentCommon`, `ChartSettings`, `BarChartProps`, etc. — also depends on `@casehub/data`.
 
 ---
 
@@ -102,7 +102,7 @@ interface PageSettings {
 
 ### Lazy pages
 
-A lazy page is a component — `{ type: "lazy-page" }`. It fits "everything is a Component" — no union type needed. The runtime recognizes `type: "lazy-page"` and fetches the content on navigation. Once fetched, it's replaced in the tree with the actual page component.
+A lazy page is a component — `{ type: "lazy-page" }`. It fits "everything is a Component" — no union type needed. The runtime recognizes `type: "lazy-page"` and fetches the content on navigation. Once fetched, the runtime produces a new tree with the lazy-page node replaced by the fetched page content (the model is immutable — no mutation).
 
 ```typescript
 // A lazy page IS a component
@@ -172,7 +172,9 @@ interface AccessControl {
 }
 ```
 
-**`id`:** Optional stable identifier for referencing a component across sessions. Required for: layout override persistence (DnD builder saves grid positions by component ID), deep linking to specific components, filter group membership by ID, collapsed panel state, scroll position state. Most components don't need one. The DSL generates deterministic IDs for components in grids (needed for layout persistence). Authors provide explicit IDs for components they want to reference in view state or deep links.
+**`id`:** Optional stable identifier for referencing a component across sessions. Required for: layout override persistence (DnD builder saves grid positions by component ID), deep linking to specific components, filter group membership by ID, collapsed panel state, scroll position state. Most components don't need one. Authors provide explicit IDs for components they want to reference in view state or deep links.
+
+**Deterministic ID generation for grid items:** Both the DSL and the YAML parser auto-generate IDs for components inside grids (needed for layout persistence). Algorithm: grids without explicit IDs get tree-path-based IDs (`grid_0`, `grid_1`, etc.) derived from depth-first traversal order. Grid items get `${gridId}_${x}_${y}`. Nested grids: `grid_0_item_0_0_grid_0` (parent grid, parent item position, child grid index). IDs are stable across rebuilds (same input → same IDs), unique across the tree, and deterministic (no randomness). Explicit `id` values always override generated ones.
 
 **`access`:** Declarative access annotation for conditional rendering (UX) and server-side page filtering (security). See §8a for the full access and loading architecture. On pages, the server uses `access` to decide whether to include the page in the payload. On non-page components, the client uses `access` for UX-level conditional rendering (hiding UI elements — not security, since the data is already on the client).
 
@@ -237,15 +239,73 @@ function isTable(c: Component): c is Component & { props: TableProps } {
 }
 ```
 
-**Component type registry** maps type strings to their props interfaces, enabling generic narrowing:
+**Component type registry** maps type strings to their props interfaces. Complete — every component type has a named props interface, even trivial ones:
 
 ```typescript
+// Layout props
+interface GridProps { readonly columns: number; }
+interface ColumnsProps { readonly distribution: readonly number[]; }
+interface RowsProps {}
+interface StackProps {}
+
+// Navigation props (config is in slots, not props — these are empty or minimal)
+interface TabsProps {}
+interface PillsProps {}
+interface SidebarProps {}
+interface TreeProps {}
+interface MenuProps {}
+interface AccordionProps {}
+interface CarouselProps {}
+interface AppGridProps {}
+interface PanelProps { readonly title: string; }
+
+// Content props
+interface HtmlProps { readonly content: string; }
+interface MarkdownProps { readonly content: string; }
+interface TitleProps { readonly text: string; readonly size?: string; }
+
+// Page props
+interface LazyPageProps { readonly name: string; readonly href: string; }
+
+// Full registry
 interface ComponentTypeRegistry {
+  // Layout
+  "grid": GridProps;
+  "columns": ColumnsProps;
+  "rows": RowsProps;
+  "stack": StackProps;
+  // Navigation
+  "tabs": TabsProps;
+  "pills": PillsProps;
+  "sidebar": SidebarProps;
+  "tree": TreeProps;
+  "menu": MenuProps;
+  "accordion": AccordionProps;
+  "carousel": CarouselProps;
+  "app-grid": AppGridProps;
+  "panel": PanelProps;
+  // Content
+  "html": HtmlProps;
+  "markdown": MarkdownProps;
+  "title": TitleProps;
+  // Pages
+  "page": PageProps;
+  "lazy-page": LazyPageProps;
+  // Data components
   "bar-chart": BarChartProps;
   "line-chart": LineChartProps;
+  "area-chart": AreaChartProps;
+  "pie-chart": PieChartProps;
+  "scatter-chart": ScatterChartProps;
+  "bubble-chart": BubbleChartProps;
+  "timeseries": TimeseriesProps;
   "table": TableProps;
   "metric": MetricProps;
-  // ... all component types
+  "meter": MeterProps;
+  "selector": SelectorProps;
+  "map": MapProps;
+  // External
+  "iframe-plugin": IframePluginProps;
 }
 
 function getProps<T extends keyof ComponentTypeRegistry>(
@@ -258,6 +318,8 @@ function getProps<T extends keyof ComponentTypeRegistry>(
   return component.props as ComponentTypeRegistry[T];
 }
 ```
+
+Every renderer is type-safe — no `as` casts needed for any component type.
 
 ---
 
@@ -468,9 +530,15 @@ interface MapProps extends DataComponentCommon {
   readonly colorScheme?: string;
 }
 
-interface IframePluginProps extends DataComponentCommon {
+interface IframePluginProps {
   readonly componentId: string;
   readonly settings?: Readonly<Record<string, unknown>>;
+  readonly lookup?: DataSetLookup;          // optional — not all plugins need data
+  readonly title?: string;
+  readonly visible?: boolean;
+  readonly width?: string;
+  readonly height?: string;
+  readonly filter?: FilterSettings;
 }
 ```
 
@@ -481,7 +549,7 @@ interface IframePluginProps extends DataComponentCommon {
 - **`lookup` is required on all data components.** Every data component needs data.
 - **`BubbleChartProps` adds radius config.** `minRadius` and `maxRadius` distinguish bubble from scatter — bubble's defining feature is the third sizing dimension.
 - **`MapProps` adds `colorScheme`.** The only themed feature on maps — without it, map theming falls to `extra`.
-- **`IframePluginProps` has the escape hatch** — `settings: Record<string, unknown>` for arbitrary 3rd-party component config. All casehub-owned components are fully typed plus `extra` on chart types.
+- **`IframePluginProps` does NOT extend `DataComponentCommon`** — it's its own type. `lookup` is optional because some iframe plugins are pure forms or UI widgets with no data dependency (e.g. uniforms). The `settings` escape hatch passes arbitrary config to 3rd-party components.
 - **Content components (`html`, `markdown`, `title`) are NOT data components** — they have no `lookup`. They're `{ type: "html", props: { content: "..." } }`.
 
 ---
@@ -837,6 +905,8 @@ function lookup(dataSetId: string, ...ops: DataSetOp[]): DataSetLookup;
 function groupBy(source: string | null, ...resultColumns: ResultColumn[]): GroupOp;
 function groupByCalendar(source: string, unit: FixedCalendarUnit, ...resultColumns: ResultColumn[]): GroupOp;
 function filterBy(column: string, fn: CoreFunctionType, ...args: readonly (string | number | Date)[]): FilterOp;
+// Date args serialized as ISO 8601 UTC (Date.toISOString()). Number args via String(n).
+// These formats are compatible with the filter resolution pipeline's string→typed parsing.
 function and(...filters: FilterOp[]): FilterOp;
 function or(...filters: FilterOp[]): FilterOp;
 function not(filter: FilterOp): FilterOp;
@@ -879,9 +949,9 @@ YAML string → js-yaml → property substitution (skip metric template fields)
 | `html: "<h1>Hi</h1>"` | `{ type: "html", props: { content: "..." } }` |
 | `markdown: "# Hi"` | `{ type: "markdown", props: { content: "..." } }` |
 | `title: "Hi"` | `{ type: "title", props: { text: "..." } }` |
-| `screen: "PageName"` | `{ type: "page-ref", props: { name: "..." } }` |
+| `screen: "PageName"` | `{ type: "page-ref", props: { name: "..." } }` (transient — see below) |
 | `panel: "PageName"` | `{ type: "panel", props: { name: "..." } }` |
-| `div: "divId"` | `{ type: "slot-target", props: { id: "..." } }` |
+| `div: "divId"` | `{ type: "slot-target", props: { id: "..." } }` (transient — see below) |
 | `displayer.type: BARCHART` | `{ type: "bar-chart", props: { ... } }` |
 | `type: TABS` | `{ type: "tabs", props: { ... } }` |
 | `type: EXTERNAL` + `componentId` | `{ type: "iframe-plugin", props: { componentId: "...", settings: {...} } }` |
@@ -902,6 +972,10 @@ The parser resolves `navGroupId` + `targetDivId` + `NavTree` into direct slot co
 5. Remove the `div` placeholder component
 6. If no `navTree` is present, or the `navGroupId` is not found, fall back to using page names from the `pages` array that match the group ID
 
+**Transient parser types:** `page-ref` and `slot-target` are intermediate component types produced during desugaring and consumed by `nav-desugar.ts`. They NEVER appear in the output of `parsePage()`. If a `page-ref` cannot be resolved (no matching page found), `parsePage()` throws. These types are not in the component type categories table or the `ComponentTypeRegistry` — they are internal to the parser.
+
+**Grid item ID generation:** The parser generates deterministic IDs for grid items using the same algorithm as the DSL (see §3). YAML-parsed pages get stable component IDs, enabling layout persistence for imported dashboards.
+
 ---
 
 ## 11. File Organization
@@ -912,18 +986,22 @@ packages/
 │   └── src/
 │       ├── model/
 │       │   ├── types.ts                # Component, GridItem, GridPlacement, AccessControl,
-│       │   │                           #   ViewState, Site, PermissionContext, ALLOW_ALL
+│       │   │                           #   PermissionContext, ALLOW_ALL
 │       │   │                           #   (ZERO external deps — extractable)
-│       │   ├── page-types.ts           # PageProps, PageSettings, DataComponentDefaults,
-│       │   │                           #   LookupDefaults, DataSetDefaults
+│       │   ├── page-types.ts           # PageProps, PageSettings, ViewState, Site,
+│       │   │                           #   DataComponentDefaults, LookupDefaults, DataSetDefaults
 │       │   │                           #   (depends on @casehub/data)
+│       │   ├── component-props.ts      # GridProps, ColumnsProps, RowsProps, StackProps,
+│       │   │                           #   TabsProps, PanelProps, HtmlProps, MarkdownProps,
+│       │   │                           #   TitleProps, LazyPageProps, etc.
+│       │   │                           #   (ZERO external deps)
 │       │   ├── displayer-types.ts      # DataComponentCommon, ChartSettings, RefreshSettings,
 │       │   │                           #   BarChartProps, LineChartProps, ScatterChartProps,
 │       │   │                           #   BubbleChartProps, TableProps, MetricProps, MeterProps,
 │       │   │                           #   SelectorProps, MapProps, IframePluginProps
 │       │   │                           #   (depends on @casehub/data)
-│       │   ├── type-guards.ts          # isBarChart(), isTable(), ..., ComponentTypeRegistry,
-│       │   │                           #   getProps()
+│       │   ├── type-guards.ts          # isBarChart(), isTable(), isHtml(), isGrid(), ...,
+│       │   │                           #   ComponentTypeRegistry (complete — all types), getProps()
 │       │   └── index.ts
 │       │
 │       ├── dsl/
