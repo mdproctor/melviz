@@ -328,6 +328,8 @@ Grids nest — a grid item's component can be another grid, enabling recursive 2
 | `app-grid` | Icon grid overlay | Root-level app/workspace switching |
 | `panel` | Collapsible titled panel | Single child, show/hide |
 
+**Page is a Panel with navigation superpowers.** Both are titled, collapsible containers that hold children. A page adds: dataset/settings scoping, URL addressability, lazy loading, navigation registration, and filter boundary. In the model both are `Component` — the `type` string (`"page"` vs `"panel"`) tells the runtime what capabilities to activate. Promoting a panel to a page (add datasets, make navigable) or demoting a page to a panel (strip navigation, inline content) requires changing only the `type` and props, not the structure.
+
 The `@casehub/ui` framework defines the slot contract. Each `<casehub-tabs>`, `<casehub-sidebar>`, `<casehub-app-grid>` etc. is a Web Component with different visual rendering over the same data. New navigation styles are added by registering new component types — no model changes needed.
 
 ---
