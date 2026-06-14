@@ -85,9 +85,10 @@ export interface SelectorProps extends DataComponentCommon {
   readonly subtype?: "dropdown" | "slider" | "labels";
 }
 
-export interface MapProps extends DataComponentCommon {
+export interface MapProps extends DataComponentCommon, ChartSettings {
   readonly subtype?: "regions" | "markers";
   readonly colorScheme?: string;
+  readonly mapName?: string;
 }
 
 export interface IframePluginProps {
