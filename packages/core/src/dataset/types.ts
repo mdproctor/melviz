@@ -16,11 +16,11 @@ export interface Column {
 }
 
 export interface ColumnSettings {
-  readonly columnId: ColumnId;
-  readonly columnName: string;
-  readonly valueExpression?: string;
-  readonly emptyTemplate?: string;
-  readonly valuePattern?: string;
+  readonly id: ColumnId;
+  readonly name?: string;
+  readonly expression?: string;
+  readonly pattern?: string;
+  readonly empty?: string;
 }
 
 export type CellValue =
