@@ -1,6 +1,6 @@
-# Dashboard Model & DSL Design
+# Page Model & DSL Design
 
-Covers issue #8. Designs the complete dashboard model — the TypeScript types that represent a dashboard, a builder DSL as the primary authoring API, and a YAML parser for backwards compatibility.
+Covers issue #8. Designs the complete page model — the TypeScript types that represent a composable page tree, a builder DSL as the primary authoring API, and a YAML parser for backwards compatibility.
 
 **Architectural decisions made during brainstorming:**
 - **Pure HTML/TypeScript/vanilla** — no React. Web Components for all UI elements. Iframes only for 3rd-party plugins.
@@ -8,11 +8,11 @@ Covers issue #8. Designs the complete dashboard model — the TypeScript types t
 - **TypeScript DSL as primary authoring format** — YAML preserved as a secondary input format for backwards compatibility with existing dashboards.
 - **Fully typed displayer settings (Option C)** — each displayer type gets its own typed props. `Record<string, unknown>` escape hatch only for iframe-isolated 3rd-party plugins, plus `extra` passthrough on chart types for ECharts native options.
 - **Slot-based component tree** (inspired by [Puck](https://github.com/puckeditor/puck)) — recursive composition via named slots. "Anything inside anything."
-- **Coordinate grid layout** (inspired by [react-grid-layout](https://github.com/react-grid-layout/react-grid-layout)) — `{x, y, w, h}` placement with row/column spanning for dashboard panel layout.
+- **Coordinate grid layout** (inspired by [react-grid-layout](https://github.com/react-grid-layout/react-grid-layout)) — `{x, y, w, h}` placement with row/column spanning for panel layout.
 - **casehub naming** — all new packages use `@casehub/*`. The git repo stays `melviz` for now.
 
 **Design direction (noted, not in scope for #8):**
-- The component model and layout primitives are designed to be extractable into a shared `@casehub/ui` package that other casehub web UIs can compose over. The chart/data layer is dashboard-specific; the layout infrastructure is general-purpose.
+- The core component primitives (`Component`, `GridItem`, slots, access, style) are designed to be extractable into a shared `@casehub/ui` package that other casehub web UIs can compose over. The data-component types (displayer props, dataset integration) are domain-specific and depend on `@casehub/data`.
 - A DnD visual builder is planned (pure TS, no framework), operating over the same model. The builder generates the model; the model is the source of truth.
 
 ---
@@ -34,14 +34,16 @@ Two data engines share the same model and operation semantics. The TS engine wor
 ### Dependency graph
 
 ```
-@casehub/viz    →  @casehub/ui/model, @casehub/data, echarts
-@casehub/ui/dsl    →  @casehub/ui/model, @casehub/data
-@casehub/ui/parser →  @casehub/ui/model, @casehub/data, zod
-@casehub/ui/model  →  (no deps, pure TS)
-@casehub/data      →  jsonata, zod
+@casehub/ui/model/types.ts          → (no deps, pure TS — extractable)
+@casehub/ui/model/displayer-types.ts → @casehub/data
+@casehub/ui/model/page-types.ts     → @casehub/data
+@casehub/ui/dsl                     → @casehub/ui/model, @casehub/data
+@casehub/ui/parser                  → @casehub/ui/model, @casehub/data, zod
+@casehub/viz                        → @casehub/ui/model, @casehub/data, echarts
+@casehub/data                       → jsonata, zod
 ```
 
-`@casehub/ui/model` is the zero-dependency core — the types that could be extracted into a shared casehub-ui framework. The DSL and parser subpaths depend on `@casehub/data` because they construct `DataSetLookup`, `FilterOp`, `GroupOp`, and `SortOp` objects. This dependency is intentional — the DSL is a dashboard authoring tool, not a generic layout builder.
+**The split:** `types.ts` contains `Component`, `GridItem`, `GridPlacement`, `AccessControl`, `ViewState`, `Site`, `PermissionContext` — the generic component primitives with zero external dependencies. These are the types extractable into a shared casehub-ui framework. `displayer-types.ts` and `page-types.ts` contain the data-component types (`DisplayerCommon`, `ChartSettings`, `PageProps`, `DataComponentDefaults`, etc.) which depend on `@casehub/data` for `DataSetLookup`, `DataSetOp`, `ColumnSettings`, `ExternalDataSetDef`.
 
 ---
 
@@ -57,7 +59,7 @@ The model is `Component`. The runtime wraps the root page in a `Site` — the en
 interface Site {
   readonly root: Component;
   page(path: string): Component | null;
-  dataset(id: DataSetId): ExternalDataSetDef | null;
+  dataset(id: DataSetId, fromPage?: string): ExternalDataSetDef | null;
   readonly state: ViewState;
 }
 
@@ -66,10 +68,17 @@ function loadSite(source: string | Component): Site;
 
 `Site` is NOT a model type — it's a runtime handle. The model stays clean (everything is `Component`). The `Site` provides:
 - **`page(path)`** — navigate by path (e.g. `"Overview/Sales"`)
-- **`dataset(id)`** — resolve a dataset by walking up the page tree from the current page
+- **`dataset(id, fromPage?)`** — resolve a dataset by walking up the page tree. `fromPage` specifies the starting page (defaults to `state.currentPage`). Explicit parameter makes the method pure and testable — callers can resolve from any page without navigating there first.
 - **`state`** — the current `ViewState` (navigation position, filters, layout overrides)
 
 `loadSite()` accepts either a YAML string (parsed via `parsePage()`) or a pre-built `Component` (from the DSL). Both produce the same `Site`.
+
+### Page path construction rules
+
+- Path = page name segments joined by `/`. e.g. a page named "Sales" inside a page named "Overview" has path `"Overview/Sales"`.
+- The root page's name is NOT included in the path — it's implicit. `page("App", page("Overview", ...))` → path is `"Overview"`, not `"App/Overview"`.
+- Page names MUST NOT contain `/` — it's the path separator. The DSL builder validates this at construction time.
+- Duplicate page names at the same nesting level are a construction error — the DSL builder throws. Different levels may reuse names (`"Detail"` under `"Sales"` and `"Detail"` under `"Costs"` are both valid — paths `"Sales/Detail"` and `"Costs/Detail"` are unambiguous).
 
 A page can carry **datasets**, **settings**, and **properties** that scope to its subtree. The root page's settings are "global" by virtue of being at the root, not by being a different type. A nested page can provide its own datasets and settings that override or extend the parent's — cascading down like CSS.
 
@@ -93,19 +102,17 @@ interface PageSettings {
 
 ### Lazy pages
 
-A page's children can be inline (content in the payload) or lazy (content fetched on navigation). Lazy pages enable server-enforced access control — see §8a.
+A lazy page is a component — `{ type: "lazy-page" }`. It fits "everything is a Component" — no union type needed. The runtime recognizes `type: "lazy-page"` and fetches the content on navigation. Once fetched, it's replaced in the tree with the actual page component.
 
 ```typescript
-type PageChild =
-  | Component                            // inline — content included in payload
-  | LazyPage;                            // lazy — content fetched on navigation
-
-interface LazyPage {
-  readonly name: string;
-  readonly href: string;                 // URL to fetch page content from
-  readonly access?: AccessControl;       // server uses this to filter; client never sees denied pages
+// A lazy page IS a component
+{ type: "lazy-page",
+  props: { name: "Admin", href: "/pages/admin.json" },
+  access: { roles: ["admin"] }
 }
 ```
+
+This means `Component.slots` holds `Component[]` uniformly — lazy pages appear naturally alongside inline pages in any slot. No `PageChild` or `PageEntry` union type.
 
 ### Defaults and merge semantics
 
@@ -146,11 +153,12 @@ interface DataSetDefaults {
 
 ## 3. Component Model
 
-One type for everything in a dashboard — charts, tables, markdown, layout containers, navigation. Nesting is via named slots. Grid layout uses `items` for positioned children.
+One type for everything — charts, tables, markdown, layout containers, navigation. Nesting is via named slots. Grid layout uses `items` for positioned children.
 
 ```typescript
 interface Component {
   readonly type: string;
+  readonly id?: string;
   readonly props?: Readonly<Record<string, unknown>>;
   readonly style?: Readonly<Record<string, string>>;
   readonly access?: AccessControl;
@@ -163,6 +171,8 @@ interface AccessControl {
   readonly permissions?: readonly string[]; // all must match
 }
 ```
+
+**`id`:** Optional stable identifier for referencing a component across sessions. Required for: layout override persistence (DnD builder saves grid positions by component ID), deep linking to specific components, filter group membership by ID, collapsed panel state, scroll position state. Most components don't need one. The DSL generates deterministic IDs for components in grids (needed for layout persistence). Authors provide explicit IDs for components they want to reference in view state or deep links.
 
 **`access`:** Declarative access annotation for conditional rendering (UX) and server-side page filtering (security). See §8a for the full access and loading architecture. On pages, the server uses `access` to decide whether to include the page in the payload. On non-page components, the client uses `access` for UX-level conditional rendering (hiding UI elements — not security, since the data is already on the client).
 
@@ -225,8 +235,6 @@ function isBarChart(c: Component): c is Component & { props: BarChartProps } {
 function isTable(c: Component): c is Component & { props: TableProps } {
   return c.type === "table";
 }
-
-// One per component type
 ```
 
 **Component type registry** maps type strings to their props interfaces, enabling generic narrowing:
@@ -251,24 +259,11 @@ function getProps<T extends keyof ComponentTypeRegistry>(
 }
 ```
 
-Renderers use the registry to dispatch without `as` casts:
-
-```typescript
-function render(component: Component): void {
-  if (isBarChart(component)) {
-    renderBarChart(component.props); // props is BarChartProps here
-  } else if (isTable(component)) {
-    renderTable(component.props);    // props is TableProps here
-  }
-  // ...
-}
-```
-
 ---
 
 ## 4. Grid Layout
 
-For 2D dashboard panel placement with row/column spanning. Inspired by [react-grid-layout](https://github.com/react-grid-layout/react-grid-layout)'s coordinate model.
+For 2D panel placement with row/column spanning. Inspired by [react-grid-layout](https://github.com/react-grid-layout/react-grid-layout)'s coordinate model.
 
 ```typescript
 interface GridPlacement {
@@ -310,10 +305,11 @@ Grids nest — a grid item's component can be another grid, enabling recursive 2
 | Category | Types | Children |
 |----------|-------|----------|
 | Layout | `grid`, `columns`, `rows`, `stack` | Slots or GridItems |
-| Navigation | `tabs`, `pills`, `sidebar`, `tree`, `menu`, `accordion`, `app-grid`, `panel` | Named content slots |
+| Navigation | `tabs`, `pills`, `sidebar`, `tree`, `menu`, `accordion`, `carousel`, `app-grid`, `panel` | Named content slots |
 | Content | `html`, `markdown`, `title` | None (leaf) |
-| Displayer | `bar-chart`, `line-chart`, `pie-chart`, `scatter-chart`, `table`, `metric`, `selector`, `meter`, `map`, `timeseries`, `bubble-chart` | None (leaf) |
+| Data component | `bar-chart`, `line-chart`, `pie-chart`, `scatter-chart`, `table`, `metric`, `selector`, `meter`, `map`, `timeseries`, `bubble-chart` | None (leaf) |
 | External | `iframe-plugin` | None (leaf, iframe-isolated) |
+| Lazy | `lazy-page` | None until resolved; replaced with page content on fetch |
 
 **Navigation components are interchangeable views over page subtrees.** All navigation components share the same slot contract — named slots containing page content. Swapping `tabs(...)` for `sidebar(...)` or `app-grid(...)` changes the visual navigation without changing the page tree. This works at any nesting level — the root can use `sidebar` while a nested section uses `tabs`, each independently chosen.
 
@@ -325,6 +321,7 @@ Grids nest — a grid item's component can be another grid, enabling recursive 2
 | `tree` | Expandable tree view | Deep hierarchies |
 | `menu` | Horizontal menu bar | Top-level navigation |
 | `accordion` | Vertically stacked, one open at a time | Dense content areas |
+| `carousel` | Sliding panels, one visible at a time | Sequential content |
 | `app-grid` | Icon grid overlay | Root-level app/workspace switching |
 | `panel` | Collapsible titled panel | Single child, show/hide |
 
@@ -334,34 +331,37 @@ The `@casehub/ui` framework defines the slot contract. Each `<casehub-tabs>`, `<
 
 ---
 
-## 5. Displayer Settings (typed per chart type)
+## 5. Data Component Settings (typed per chart type)
 
-Each displayer type gets its own typed props interface. Common settings shared via composition.
+Each data component type gets its own typed props interface. Common settings shared via composition.
 
 ### Common types
 
 ```typescript
-interface DisplayerCommon {
+interface DataComponentCommon {
   readonly title?: string;
   readonly visible?: boolean;
   readonly width?: string;
   readonly height?: string;
+  readonly csvExport?: boolean;
   readonly lookup: DataSetLookup;
-  readonly rowCount?: number;         // display-level: max rows to render
-  readonly rowOffset?: number;        // display-level: skip N rows before rendering
+  readonly rowCount?: number;
+  readonly rowOffset?: number;
   readonly columns?: readonly ColumnSettings[];
   readonly filter?: FilterSettings;
   readonly refresh?: RefreshSettings;
 }
 
 interface RefreshSettings {
-  readonly interval?: number;         // seconds between re-queries
-  readonly staleData?: boolean;       // show stale indicator when data is old
+  readonly interval?: number;
+  readonly showStaleIndicator?: boolean;
 }
 
 interface ChartSettings {
   readonly resizable?: boolean;
   readonly zoom?: boolean;
+  readonly maxWidth?: number;
+  readonly maxHeight?: number;
   readonly legend?: {
     readonly show?: boolean;
     readonly position?: "top" | "bottom" | "left" | "right";
@@ -372,19 +372,31 @@ interface ChartSettings {
     readonly bottom?: number;
     readonly left?: number;
   };
+  readonly xAxis?: {
+    readonly title?: string;
+    readonly showLabels?: boolean;
+  };
+  readonly yAxis?: {
+    readonly title?: string;
+    readonly showLabels?: boolean;
+  };
   readonly extra?: Readonly<Record<string, unknown>>;
 }
 ```
 
-**`rowCount` / `rowOffset`:** Display-level pagination. These are NOT part of `DataSetLookup` (which is a pure query definition). They live in `LookupOptions` at the service layer. The YAML format puts them inside the `lookup:` section for authoring convenience, but the parser extracts them into displayer props during desugaring. At runtime, the renderer passes them as `LookupOptions` when calling `DataSetManager.lookup()`.
+**`rowCount` / `rowOffset`:** Display-level pagination. These are NOT part of `DataSetLookup` (which is a pure query definition). They live in `LookupOptions` at the service layer. The YAML format puts them inside the `lookup:` section for authoring convenience, but the parser extracts them into data component props during desugaring. At runtime, the renderer passes them as `LookupOptions` when calling `DataSetManager.lookup()`.
 
-**`refresh`:** Polling configuration for real-time dashboards (Prometheus, time series). The `interval` controls how often the displayer re-queries the dataset manager. Distinct from `ExternalDataSetDef.refreshTime` which controls how often the dataset re-fetches from its external source.
+**`refresh`:** Polling configuration for real-time use cases (Prometheus, time series). The `interval` controls how often the data component re-queries the dataset manager. Distinct from `ExternalDataSetDef.refreshTime` which controls how often the dataset re-fetches from its external source.
 
-**`extra` on `ChartSettings`:** ECharts native option passthrough. The typed fields (`resizable`, `zoom`, `legend`, `margin`) cover common cases with compile-time safety. `extra` covers the long tail — ECharts has hundreds of options (custom color palettes, toolbox configuration, axis formatting, data zoom, etc.) that the typed surface can't exhaust. This maps to the Java `extraConfiguration` JSON blob that existing dashboards use for theming and advanced ECharts features.
+**`csvExport`:** Whether the component allows data export. Platform feature, not chart-specific.
+
+**`xAxis` / `yAxis`:** Axis configuration is fundamental — every chart type uses these. Typed here rather than pushed to `extra` because they're the most common chart configuration after title and legend.
+
+**`extra` on `ChartSettings`:** ECharts native option passthrough. The typed fields cover common cases with compile-time safety. `extra` covers the long tail — ECharts has hundreds of options (custom color palettes, toolbox configuration, advanced axis formatting, data zoom, etc.) that the typed surface can't exhaust. This maps to the Java `extraConfiguration` JSON blob that existing dashboards use for theming and advanced ECharts features.
 
 ### ColumnSettings — canonical type
 
-The data layer (`@casehub/data`) already defines `ColumnSettings` in `types.ts`. The spec's displayer column settings are the same concept — per-column display configuration. Rather than create a second `ColumnSettings` with different field names, the data layer's type is canonical. **Breaking change:** rename the data layer's fields to the cleaner names:
+The data layer (`@casehub/data`) already defines `ColumnSettings` in `types.ts`. The spec's data component column settings are the same concept — per-column display configuration. Rather than create a second `ColumnSettings` with different field names, the data layer's type is canonical. **Breaking change:** rename the data layer's fields to the cleaner names:
 
 ```typescript
 // @casehub/data types.ts — CHANGED field names
@@ -402,56 +414,61 @@ One type, one name, one set of field names across both packages. The migration i
 ### Per-type props
 
 ```typescript
-interface BarChartProps extends DisplayerCommon, ChartSettings {
+interface BarChartProps extends DataComponentCommon, ChartSettings {
   readonly subtype?: "column" | "column-stacked" | "bar" | "bar-stacked";
 }
 
-interface LineChartProps extends DisplayerCommon, ChartSettings {
+interface LineChartProps extends DataComponentCommon, ChartSettings {
   readonly subtype?: "line" | "smooth";
 }
 
-interface AreaChartProps extends DisplayerCommon, ChartSettings {
+interface AreaChartProps extends DataComponentCommon, ChartSettings {
   readonly subtype?: "area" | "area-stacked";
 }
 
-interface PieChartProps extends DisplayerCommon, ChartSettings {
+interface PieChartProps extends DataComponentCommon, ChartSettings {
   readonly subtype?: "pie" | "donut";
 }
 
-interface ScatterChartProps extends DisplayerCommon, ChartSettings {}
+interface ScatterChartProps extends DataComponentCommon, ChartSettings {}
 
-interface BubbleChartProps extends DisplayerCommon, ChartSettings {}
+interface BubbleChartProps extends DataComponentCommon, ChartSettings {
+  readonly minRadius?: number;
+  readonly maxRadius?: number;
+}
 
-interface TimeseriesProps extends DisplayerCommon, ChartSettings {}
+interface TimeseriesProps extends DataComponentCommon, ChartSettings {}
 
-interface TableProps extends DisplayerCommon {
+interface TableProps extends DataComponentCommon {
   readonly pageSize?: number;
   readonly sortable?: boolean;
   readonly resizable?: boolean;
 }
 
-interface MetricProps extends DisplayerCommon {
+interface MetricProps extends DataComponentCommon {
+  readonly subtype?: "card" | "card2" | "plain-text" | "quota";
   readonly html?: {
     readonly template?: string;
     readonly javascript?: string;
   };
 }
 
-interface MeterProps extends DisplayerCommon, ChartSettings {
+interface MeterProps extends DataComponentCommon, ChartSettings {
   readonly end?: number;
   readonly warning?: number;
   readonly critical?: number;
 }
 
-interface SelectorProps extends DisplayerCommon {
+interface SelectorProps extends DataComponentCommon {
   readonly subtype?: "dropdown" | "slider" | "labels";
 }
 
-interface MapProps extends DisplayerCommon {
+interface MapProps extends DataComponentCommon {
   readonly subtype?: "regions" | "markers";
+  readonly colorScheme?: string;
 }
 
-interface IframePluginProps extends DisplayerCommon {
+interface IframePluginProps extends DataComponentCommon {
   readonly componentId: string;
   readonly settings?: Readonly<Record<string, unknown>>;
 }
@@ -460,10 +477,12 @@ interface IframePluginProps extends DisplayerCommon {
 ### Design decisions
 
 - **Subtypes are string unions on specific props types.** `BarChartProps.subtype` only accepts bar-related subtypes. The old Java `DisplayerSubType` enum allowed nonsensical combinations (`DONUT` on a bar chart). The typed model prevents this.
-- **`lookup` is required on all displayers.** Every displayer needs data.
-- **`ScatterChartProps` added.** Java `DisplayerType.SCATTERCHART` is preserved. Scatter shows (x, y) data points; bubble adds a third sizing dimension. They are distinct chart types.
+- **Metric subtypes map to built-in templates.** Java `METRIC_CARD`, `METRIC_CARD2`, `METRIC_PLAIN_TEXT`, `METRIC_QUOTA` are built-in HTML/JS templates. The `subtype` field selects these. Custom templates via `html.template` override the subtype.
+- **`lookup` is required on all data components.** Every data component needs data.
+- **`BubbleChartProps` adds radius config.** `minRadius` and `maxRadius` distinguish bubble from scatter — bubble's defining feature is the third sizing dimension.
+- **`MapProps` adds `colorScheme`.** The only themed feature on maps — without it, map theming falls to `extra`.
 - **`IframePluginProps` has the escape hatch** — `settings: Record<string, unknown>` for arbitrary 3rd-party component config. All casehub-owned components are fully typed plus `extra` on chart types.
-- **Content components (`html`, `markdown`, `title`) are NOT displayers** — they have no `lookup`. They're `{ type: "html", props: { content: "..." } }`.
+- **Content components (`html`, `markdown`, `title`) are NOT data components** — they have no `lookup`. They're `{ type: "html", props: { content: "..." } }`.
 
 ---
 
@@ -507,16 +526,9 @@ barChart({ ..., filter: { listening: true } })
 
 Grouped (independent channels):
 ```typescript
-// Region channel
 selector({ ..., filter: { notification: true, group: "region" } })
 barChart({ ..., filter: { listening: true, group: "region" } })
-
-// Time channel (independent of region)
-selector({ ..., filter: { notification: true, group: "time" } })
-lineChart({ ..., filter: { listening: true, group: "time" } })
-
-// Ungrouped — hears ALL events
-table({ ..., filter: { listening: true } })
+table({ ..., filter: { listening: true } })  // ungrouped — hears ALL events
 ```
 
 Drill-down (click → navigate with context):
@@ -525,22 +537,14 @@ barChart({
   ...,
   filter: {
     notification: true,
-    drillDown: {
-      target: "Region Detail",
-      parameters: { region: "region" },
-    },
+    drillDown: { target: "Region Detail", parameters: { region: "region" } },
   },
 })
 ```
 
 ### Design rationale
 
-Informed by analysis of [Grafana](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/), [Tableau](https://help.tableau.com/current/pro/desktop/en-us/actions_filter.htm), [Power BI](https://learn.microsoft.com/en-us/power-bi/guidance/relationships-bidirectional-filtering), [Databricks](https://docs.databricks.com/aws/en/dashboards/filters), and [CanvasXpress](https://www.canvasxpress.org/docs/broadcast.html):
-
-- Page-scoped broadcast is the industry default. Every major tool starts here.
-- Filter groups/channels are essential for non-trivial dashboards ([CanvasXpress `broadcastGroup`](https://www.canvasxpress.org/docs/broadcast.html), [Tableau targeted filter actions](https://help.tableau.com/current/pro/desktop/en-us/actions_filter.htm)).
-- [Power BI warns extensively](https://learn.microsoft.com/en-us/power-bi/guidance/relationships-bidirectional-filtering) about implicit bidirectional filtering — the notification/listening model makes direction explicit.
-- Drill-down is navigation, not filtering ([Grafana inter-dashboard links](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/), [Tableau dashboard actions](https://help.tableau.com/current/pro/desktop/en-us/actions_filter.htm)). They compose but are independently useful.
+Informed by analysis of [Grafana](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/), [Tableau](https://help.tableau.com/current/pro/desktop/en-us/actions_filter.htm), [Power BI](https://learn.microsoft.com/en-us/power-bi/guidance/relationships-bidirectional-filtering), [Databricks](https://docs.databricks.com/aws/en/dashboards/filters), and [CanvasXpress](https://www.canvasxpress.org/docs/broadcast.html).
 
 ---
 
@@ -549,14 +553,10 @@ Informed by analysis of [Grafana](https://grafana.com/docs/grafana/latest/visual
 Components reference data via `DataSetLookup` (designed in issue #5):
 
 ```typescript
-interface DisplayerCommon {
+interface DataComponentCommon {
   readonly lookup: DataSetLookup;  // { dataSetId, operations }
 }
 ```
-
-**Global lookup defaults:** `global.displayer.lookup` is merged into every displayer's lookup per the shallow, per-field, own-wins semantics defined in §2. `rowCount` and `rowOffset` from `LookupDefaults` are extracted into displayer props, not passed through to `DataSetLookup`.
-
-**Global dataset defaults:** `global.dataset` fields merge into every dataset definition. Individual datasets override.
 
 **Resolution:** `lookup.dataSetId` resolves by walking up the page tree — the nearest ancestor page that defines a dataset with that `uuid` wins. Not found in any ancestor → `DataSetError("UNKNOWN_PROVIDER")`. No implicit dataset creation.
 
@@ -564,9 +564,9 @@ interface DisplayerCommon {
 
 ## 8. Property Substitution
 
-Two distinct substitution mechanisms exist with the same `${...}` syntax. The parser must distinguish them.
+Three distinct substitution mechanisms exist. The parser and runtime must distinguish them.
 
-### Dashboard property substitution (parse-time)
+### 1. Page property substitution (parse-time)
 
 The root page's `properties` defines string variables replaced throughout the page tree **before** component parsing:
 
@@ -578,32 +578,19 @@ pages:
       - html: "<h1>Hello ${name}</h1>"
 ```
 
-In the DSL, properties are unnecessary — TypeScript template literals provide the same capability natively:
-```typescript
-const name = "World";
-page("Hello", html(`<h1>Hello ${name}</h1>`))
-```
+In the DSL, properties are unnecessary — TypeScript template literals provide the same capability natively.
 
-**`allowUrlProperties`** — when true, query parameters override properties at runtime (`?name=Mundo`). Only applies in CLIENT mode. Preserved for backwards compatibility.
+**`allowUrlProperties`** — when true, query parameters override properties at runtime (`?name=Mundo`). Only applies in CLIENT mode.
 
-### Metric template substitution (render-time)
+### 2. Metric template substitution (render-time)
 
-Metric components use `${value}`, `${title}`, and `${this}` as data-bound variables resolved at render time from the current dataset row:
+Metric components use `${value}`, `${title}`, and `${this}` as data-bound variables resolved at render time from the current dataset row.
 
-```yaml
-displayer:
-  type: METRIC
-  html:
-    html: >-
-      <div>${value}</div>
-      <span id="${this}">${title}</span>
-    javascript: >-
-      ${this}.style.color = "red";
-```
+**Parser rule:** Property substitution skips the `html.template` and `html.javascript` fields of `MetricProps`. The substitution context is determined by field path.
 
-These are NOT dashboard properties. They are replaced by the metric renderer, not the YAML parser.
+### 3. Server user-context substitution (server-enforced)
 
-**Parser rule:** Property substitution skips the `html.template` and `html.javascript` fields of `MetricProps`. The substitution context is determined by field path — `metric.html.template` and `metric.html.javascript` contain render-time variables; all other string fields contain parse-time variables.
+`DataAccessPolicy.rowFilter` uses `${user.*}` variables (e.g. `${user.tenantId}`) resolved by `@casehub/data-jvm` against the authenticated principal's attributes. The server defines the `${user.*}` namespace — available attributes depend on the auth integration (OIDC claims, LDAP attributes, custom user properties). The TS data engine never evaluates these expressions.
 
 ---
 
@@ -613,62 +600,25 @@ Three distinct access concerns, each enforced at a different layer:
 
 ### 1. Page-level access (server-enforced, real security)
 
-Pages can be **inline** (content in the dashboard payload) or **lazy** (content fetched on navigation). Lazy pages enable server-enforced access control — the server decides per-request whether the user can see the page content.
+Pages can be inline (content in the payload) or lazy (`type: "lazy-page"` — content fetched on navigation). Lazy pages enable server-enforced access control — the server decides per-request whether the user can see the page content.
 
-```typescript
-type PageEntry =
-  | Component        // inline — always in the payload
-  | LazyPage;        // lazy — fetched on demand, server checks access
+**Invisible omission:** Restricted pages are simply absent from the navigation. The user never sees tabs, tree entries, or menu items for pages they can't access.
 
-interface LazyPage {
-  readonly name: string;
-  readonly href: string;
-  readonly access?: AccessControl;
-}
-```
-
-**Invisible omission:** Restricted pages are not blocked with a 403 — they're simply absent from the navigation. The user never sees tabs, tree entries, or menu items for pages they can't access. The navigation structure itself is access-controlled.
-
-**How this works:**
-
-The full dashboard definition on disk (YAML or TS) contains ALL pages, including restricted ones with `access` annotations. When the dashboard is served, the provider filters the page list based on the user's context:
+**Direct URL access:** When a user navigates directly to a restricted page (bookmark, shared link), the server returns 403 (not 404). The client shows "access denied" — the page is real, the user just can't see it.
 
 | Provider | How it filters |
 |----------|---------------|
 | **Static web server** (nginx, CDN) | Each page is a separate file behind path-based ACL rules. The manifest lists all pages; the client fetches each and silently drops 403s from navigation. |
-| **`@casehub/data-jvm`** (Quarkus) | The server reads the full dashboard, evaluates `access` annotations against the user's roles/permissions, and returns a personalized payload with only the authorized pages. |
+| **`@casehub/data-jvm`** (Quarkus) | The server reads the full page tree, evaluates `access` annotations against the user's roles/permissions, and returns a personalized payload with only the authorized pages. |
 | **Hybrid** | The manifest comes from the JVM (pre-filtered). Page content is served from static files or the JVM. Both enforce access. |
 
-**Recursive filtering:** A page can contain nested pages (via tabs, panels, etc.). If a nested page has `access: { roles: ["admin"] }` and the user isn't admin, that tab/panel entry is omitted from the parent page's slots. The filtering is recursive — the server walks the component tree and prunes access-denied subtrees.
-
-**Static file layout for lazy pages:**
-```
-/dashboard/
-  manifest.json          # page list with names, hrefs, access annotations
-  pages/
-    overview.json        # public page content
-    admin.json           # restricted page content (web server ACL)
-    reports/
-      sales.json         # restricted sub-page
-      operations.json    # restricted sub-page
-```
-
-The client fetches `manifest.json` first, then lazily loads page content as the user navigates. For static deployments, the web server's ACL rules control access. For JVM deployments, the manifest itself is pre-filtered.
+**Recursive filtering:** The server walks the component tree and prunes access-denied subtrees.
 
 ### 2. Conditional rendering (client-side, UX only — not security)
 
-Components can declare `access` annotations for UX-level visibility. The client evaluates these against a `PermissionContext` and hides components that don't match. This is NOT security — the data is already on the client. It's UX: "don't show the admin control panel to non-admins."
+Components can declare `access` annotations for UX-level visibility. The client evaluates these against a `PermissionContext` and hides components that don't match. This is NOT security — the data is already on the client.
 
 ```typescript
-// On any Component
-{ type: "panel", props: { title: "Admin Controls" },
-  access: { roles: ["admin"] },
-  slots: { content: [...] }
-}
-```
-
-```typescript
-// Runtime interface
 interface PermissionContext {
   hasRole(role: string): boolean;
   hasPermission(permission: string): boolean;
@@ -680,38 +630,20 @@ const ALLOW_ALL: PermissionContext = {
 };
 ```
 
-The renderer checks `access` before rendering. No `access` field = visible to everyone. `ALLOW_ALL` is the default — zero friction until real auth is wired in.
-
 ### 3. Row-level data filtering (server-enforced, real security)
-
-Datasets can declare row-level access policies. Enforcement is server-side only (`@casehub/data-jvm`). The TS data engine in the browser ignores these — client-side row filtering provides no security.
 
 ```typescript
 interface DataAccessPolicy {
-  readonly rowFilter?: string;           // server-side filter expression
-                                         // e.g. "tenant_id = ${user.tenantId}"
-  readonly excludeColumns?: readonly string[];  // columns omitted for certain roles
+  readonly rowFilter?: string;
+  readonly excludeColumns?: readonly ColumnId[];
 }
 ```
 
-Added to `ExternalDataSetDef`:
-
-```typescript
-interface ExternalDataSetDef {
-  // ... existing fields
-  readonly dataAccess?: DataAccessPolicy;
-}
-```
-
-The `DataAccessPolicy` is a declaration in the model — "this dataset has row-level security." The `@casehub/data-jvm` engine reads it and applies the filter before returning results. The `@casehub/data` TS engine ignores it entirely. The `${user.tenantId}` syntax is resolved by the server against the authenticated user's context — a third substitution mechanism distinct from dashboard properties (parse-time) and metric templates (render-time).
-
-### Design principle
-
-The model is the single source of truth for what a dashboard describes — including its security posture. But enforcement is always server-side for real security. Client-side `access` checks are UX convenience only. This separation is explicit in the architecture:
+Added to `ExternalDataSetDef`. Enforcement by `@casehub/data-jvm` only. The TS data engine ignores it.
 
 | What | Declared in | Enforced by | Security? |
 |------|------------|-------------|-----------|
-| Page visibility | `PageEntry.access` | Server (JVM or web server ACL) | Yes |
+| Page visibility | `Component.access` | Server (JVM or web server ACL) | Yes |
 | Component visibility | `Component.access` | Client (PermissionContext) | No (UX) |
 | Row-level data | `ExternalDataSetDef.dataAccess` | `@casehub/data-jvm` | Yes |
 
@@ -719,7 +651,7 @@ The model is the single source of truth for what a dashboard describes — inclu
 
 ## 8b. View State & Persistence
 
-The model describes what a page tree IS. View state captures what the user HAS DONE — current navigation, filter selections, layout changes. They compose: `Page (model) + ViewState (interaction) → rendered view`.
+The model describes what a page tree IS. View state captures what the user HAS DONE. They compose: `Page (model) + ViewState (interaction) → rendered view`.
 
 ### ViewState
 
@@ -727,7 +659,7 @@ The model describes what a page tree IS. View state captures what the user HAS D
 interface ViewState {
   readonly currentPage?: string;
   readonly expandedNodes?: readonly string[];
-  readonly activeFilters?: Readonly<Record<string, readonly string[]>>;
+  readonly activeFilters?: Readonly<Record<ColumnId, readonly string[]>>;
   readonly drillDownPath?: readonly DrillDownStep[];
   readonly layoutOverrides?: readonly LayoutOverride[];
   readonly collapsedPanels?: readonly string[];
@@ -742,10 +674,14 @@ interface DrillDownStep {
 }
 
 interface LayoutOverride {
-  readonly componentId: string;
+  readonly componentId: string;     // references Component.id
   readonly placement: GridPlacement;
 }
 ```
+
+**`activeFilters` key semantics:** The key is `ColumnId` — the column being filtered. When two selectors filter the same column, their values merge (union). A selector emitting `{ columnId: "region", values: ["North"] }` and another emitting `{ columnId: "region", values: ["South"] }` produce `activeFilters: { region: ["North", "South"] }`. Different columns are independent entries.
+
+**`componentId` references:** `LayoutOverride.componentId`, `collapsedPanels`, and `scrollPositions` keys all reference `Component.id`. Components without an `id` cannot be referenced in view state.
 
 ### Client-side storage (layered)
 
@@ -755,26 +691,7 @@ interface LayoutOverride {
 | Layout overrides, expanded nodes, collapsed panels | `localStorage` | Survives browser restart |
 | Cached page payloads, dataset results | `IndexedDB` | Survives restart, enables offline |
 
-```typescript
-interface StateStore {
-  save(pageId: string, state: ViewState): void;
-  load(pageId: string): ViewState | null;
-  clear(pageId: string): void;
-}
-```
-
-**Offline support:** When the network is unavailable, the runtime serves page definitions and dataset results from IndexedDB cache. The user sees stale data with a "last updated N minutes ago" indicator. When connectivity returns, fresh data replaces the cache.
-
 ### Server-side state sync (optional, cross-device)
-
-When `@casehub/data-jvm` or `@casehub/data-relay` is available, state can round-trip to the server for cross-device continuity:
-
-```typescript
-interface RemoteStateSync {
-  push(pageId: string, userId: string, state: ViewState): Promise<void>;
-  pull(pageId: string, userId: string): Promise<ViewState | null>;
-}
-```
 
 **Conflict resolution — URL wins, then local, then server:**
 1. URL state (highest priority — explicit intent from a shared link)
@@ -782,31 +699,27 @@ interface RemoteStateSync {
 3. Server state (cross-device fallback)
 4. Default state (clean start)
 
-Server sync is fire-and-forget on save — debounced, non-blocking. The user never waits for a server round-trip to navigate.
-
 ### Deep linking (shareable URLs)
-
-Not all state belongs in a URL. The URL encodes **navigation intent** — what the link sharer wants the recipient to see:
 
 | In the URL | Not in the URL |
 |------------|----------------|
-| Current page path | Layout overrides (too large, personal preference) |
+| Current page path | Layout overrides (personal preference) |
 | Active filter selections | Expanded tree nodes (personal preference) |
 | Drill-down position | Collapsed panels (personal preference) |
 | Sort column + direction | Scroll positions (ephemeral) |
 | Page parameters (data keys, actions) | |
 
+**URL format:**
 ```
-#/page/Overview/Sales?filter=region:North,year:2024&drill=product:Widget&sort=revenue:DESC
-```
-
-**Data-keyed pages:** URL parameters override page properties via `${param}` substitution. This is the primary mechanism for email-driven workflows — an email links to a specific page keyed to specific data:
-
-```
-#/page/CaseReview?caseId=12345&action=approve&status=pending
+#/page/Overview/Sales?filter=region:North|South,year:2024&drill=product:Widget&sort=revenue:DESC
 ```
 
-The page uses `${caseId}` in dataset URLs, filter expressions, and conditional rendering. The URL carries the full intent — which page, which record, what action.
+**Multi-value filter encoding:** Pipe-separated within a key. `region:North|South` means `activeFilters: { region: ["North", "South"] }`. Commas separate different filter keys.
+
+**Data-keyed pages:** URL parameters override page properties via `${param}` substitution. This is the primary mechanism for email-driven workflows:
+```
+#/page/CaseReview?caseId=12345&action=approve
+```
 
 ```typescript
 interface DeepLink {
@@ -821,42 +734,21 @@ function serializeToUrl(state: Partial<ViewState>): string;
 function parseFromUrl(hash: string): DeepLink;
 ```
 
-**URL is authoritative when present.** Opening a link overrides localStorage for current page and filters. Local-only state (layout, expanded nodes) is preserved from storage — the link controls navigation, not preferences.
-
-**Generating shareable links:** A "share" action serializes the current navigation state to a URL. The recipient lands at the same page with the same filters and drill-down, but their own layout preferences.
-
 ### Tiny URLs (optional cache layer)
 
-The full-state URL is always the canonical form — self-contained, works without a server. For email workflows where URL length or readability matters, an optional URL shortening cache maps a short token to the full URL:
+The full-state URL is always the canonical form. For email workflows, an optional URL shortening cache maps a short token to the full URL:
 
 ```
-Full URL (canonical, always works):
-https://app.example.com/#/page/CaseReview?caseId=12345&action=approve&filter=status:pending
-
-Tiny URL (optional, redirects to full URL):
-https://app.example.com/v/abc123
+Full URL:  https://app.example.com/#/page/CaseReview?caseId=12345&action=approve
+Tiny URL:  https://app.example.com/v/abc123
 ```
-
-The tiny URL service is a key→URL mapping with optional expiry and access checks. It stores the full URL, not a separate state object — no special model needed. On resolution, it 302-redirects to the full URL. The full URL remains the source of truth.
 
 ```typescript
-// Server-side API (@casehub/data-relay or @casehub/data-jvm)
 interface TinyUrlService {
-  create(fullUrl: string, options?: {
-    expiry?: Date;
-    access?: AccessControl;
-  }): Promise<string>;  // returns token
-
+  create(fullUrl: string, options?: { expiry?: Date; access?: AccessControl }): Promise<string>;
   resolve(token: string): Promise<string | null>;
-  // Returns full URL, or null if expired / access denied
 }
 ```
-
-Benefits for email workflows:
-- Short URLs (~60 chars) survive all email clients
-- Expiry for time-sensitive links (approval requests)
-- Access checks before redirect (server validates user before revealing the full URL)
-- Click-through tracking (optional)
 
 ---
 
@@ -866,15 +758,12 @@ Builder functions that construct the model types. Primary authoring API.
 
 ### Branded type handling
 
-The data layer uses branded types (`ColumnId`, `DataSetId`) for compile-time safety. The DSL accepts plain strings and brands internally — callers write `lookup("sales")` not `lookup("sales" as DataSetId)`. The branding is an internal safety mechanism, not a user-facing API concern.
+The data layer uses branded types (`ColumnId`, `DataSetId`). The DSL accepts plain strings and brands internally — callers write `lookup("sales")` not `lookup("sales" as DataSetId)`.
 
 ### Pages (the only entry point)
 
 ```typescript
-function page(
-  name: string,
-  ...args: [...Component[], PageOptions?]
-): Component;
+function page(name: string, ...args: [...Component[], PageOptions?]): Component;
 
 interface PageOptions {
   readonly datasets?: readonly ExternalDataSetDef[];
@@ -883,7 +772,7 @@ interface PageOptions {
 }
 ```
 
-There is no `dashboard()` or `app()` function. The root IS a page. A page with child pages, datasets, and settings — that's the entire model. `page()` accepts an optional `PageOptions` as the last argument (detected by type, same pattern as before).
+There is no `dashboard()` or `app()` function. The root IS a page.
 
 ### Layout
 
@@ -893,26 +782,25 @@ function at(x: number, y: number, w: number, h: number, component: Component): G
 
 function columns(distribution: number[], ...slotContents: Component[][]): Component;
 function rows(...children: Component[]): Component;
-function stack(...children: Component[]): Component;  // alias for rows
+function stack(...children: Component[]): Component;
 ```
 
-**`columns()` validation:** throws if `distribution.length !== slotContents.length`. The positional mapping from array index to slot name (`col-0`, `col-1`, ...) is a fixed convention — the same convention the Web Component uses for its `<slot name="col-N">` elements. Named parameters would add verbosity for zero safety gain since the validation catches mismatches at construction time.
+**`columns()` validation:** throws if `distribution.length !== slotContents.length`.
 
 ### Navigation / Composition
 
 All navigation builders share the same slot contract — interchangeable views over page subtrees.
 
 ```typescript
-// Named-slot navigation (entries = [label, ...children])
 function tabs(...entries: [string, ...Component[]][]): Component;
 function pills(...entries: [string, ...Component[]][]): Component;
 function sidebar(...entries: [string, ...Component[]][]): Component;
 function tree(...entries: [string, ...Component[]][]): Component;
 function menu(...entries: [string, ...Component[]][]): Component;
 function accordion(...entries: [string, ...Component[]][]): Component;
+function carousel(...entries: [string, ...Component[]][]): Component;
 function appGrid(...entries: [string, ...Component[]][]): Component;
 
-// Single-child wrappers
 function panel(title: string, ...children: Component[]): Component;
 ```
 
@@ -924,7 +812,7 @@ function markdown(content: string): Component;
 function title(text: string, size?: string): Component;
 ```
 
-### Displayers
+### Data components
 
 ```typescript
 function barChart(props: BarChartProps): Component;
@@ -942,141 +830,32 @@ function mapChart(props: MapProps): Component;
 function iframePlugin(props: IframePluginProps): Component;
 ```
 
-### Dataset helpers
-
-```typescript
-function dataset(def: ExternalDataSetDef): ExternalDataSetDef;
-function inlineDataset(uuid: string, content: unknown[],
-  columns: ExternalColumnDef[]): ExternalDataSetDef;
-```
-
 ### Lookup helpers
 
 ```typescript
 function lookup(dataSetId: string, ...ops: DataSetOp[]): DataSetLookup;
-// Accepts plain string, brands to DataSetId internally.
-
-function groupBy(
-  source: string | null,
-  ...resultColumns: ResultColumn[]
-): GroupOp;
-// source: null → whole-dataset aggregation (groupingKey: null).
-// GroupingKey defaults when source is non-null:
-//   strategy: { mode: "distinct" }
-//   maxIntervals: 15
-//   emptyIntervals: false
-//   ascendingOrder: true
-
-function groupByCalendar(
-  source: string,
-  unit: FixedCalendarUnit,
-  ...resultColumns: ResultColumn[]
-): GroupOp;
-// Convenience for fixedCalendar strategy.
-
-function filterBy(
-  column: string,
-  fn: CoreFunctionType,
-  ...args: readonly (string | number | Date)[]
-): FilterOp;
-// Uses CoreFunctionType, not bare string. Accepts Date for date columns.
-
+function groupBy(source: string | null, ...resultColumns: ResultColumn[]): GroupOp;
+function groupByCalendar(source: string, unit: FixedCalendarUnit, ...resultColumns: ResultColumn[]): GroupOp;
+function filterBy(column: string, fn: CoreFunctionType, ...args: readonly (string | number | Date)[]): FilterOp;
 function and(...filters: FilterOp[]): FilterOp;
 function or(...filters: FilterOp[]): FilterOp;
 function not(filter: FilterOp): FilterOp;
-// Boolean combinators. filterBy() produces leaf expressions;
-// and/or/not compose them into trees.
-
-function sortBy(column: string,
-  order?: "ASCENDING" | "DESCENDING"): SortOp;
-
-// Result column helpers — return existing ResultColumn type from @casehub/data
-function col(source: string): ResultColumn;      // key/select column
-function sum(source: string): ResultColumn;       // SUM aggregate
-function avg(source: string): ResultColumn;       // AVERAGE aggregate
-function count(source: string): ResultColumn;     // COUNT aggregate
-function min(source: string): ResultColumn;       // MIN aggregate
-function max(source: string): ResultColumn;       // MAX aggregate
-function distinct(source: string): ResultColumn;  // DISTINCT aggregate
-function join(source: string, separator?: string): ResultColumn;  // JOIN aggregate
-```
-
-**`ResultColumn`** is the existing type from `@casehub/data` (`group.ts`). No new `ResultColumnDef` type. The `col()` helper infers `kind` from context: if the `source` matches the `groupBy` source, it's a `"key"` column; otherwise it's a `"select"` column. This inference happens inside `groupBy()` after all result columns are collected.
-
-### Complete example
-
-```typescript
-// The root is a page. It carries datasets and settings for its subtree.
-const salesApp = page("Sales",
-  {
-    datasets: [
-      inlineDataset("sales", [
-        ["North", "Widget", 50000, "2024-01-15"],
-        ["South", "Gadget", 45000, "2024-02-20"],
-      ], [
-        { id: "region", type: ColumnType.LABEL },
-        { id: "product", type: ColumnType.LABEL },
-        { id: "revenue", type: ColumnType.NUMBER },
-        { id: "date", type: ColumnType.DATE },
-      ]),
-    ],
-    settings: { mode: "dark" },
-  },
-  // Child pages — navigation style chosen by the wrapper
-  tabs(
-    ["Overview",
-      page("Overview",
-        grid(12,
-          at(0, 0, 4, 1, selector({
-            subtype: "labels",
-            lookup: lookup("sales", groupBy("region", col("region"))),
-            filter: { notification: true, group: "region" },
-          })),
-          at(4, 0, 8, 2, barChart({
-            title: "Revenue by Product",
-            lookup: lookup("sales", groupBy("product", col("product"), sum("revenue"))),
-            filter: { listening: true, group: "region" },
-          })),
-          at(0, 1, 4, 1, metric({
-            title: "Total Revenue",
-            lookup: lookup("sales", groupBy(null, sum("revenue"))),
-            filter: { listening: true, group: "region" },
-          })),
-          at(0, 2, 12, 2, table({
-            pageSize: 10,
-            lookup: lookup("sales"),
-            filter: { listening: true },
-          })),
-        ),
-      ),
-    ],
-    ["Detail",
-      page("Detail",
-        columns([1, 1],
-          [lineChart({
-            title: "Trend",
-            lookup: lookup("sales", groupBy("date", col("date"), sum("revenue"))),
-          })],
-          [pieChart({
-            title: "By Region",
-            subtype: "donut",
-            lookup: lookup("sales", groupBy("region", col("region"), sum("revenue"))),
-          })],
-        ),
-      ),
-    ],
-  ),
-);
-
-// Same page tree, different navigation — swap tabs() for sidebar()
-// and the entire UX changes. No structural changes to the pages.
+function sortBy(column: string, order?: "ASCENDING" | "DESCENDING"): SortOp;
+function col(source: string): ResultColumn;
+function sum(source: string): ResultColumn;
+function avg(source: string): ResultColumn;
+function count(source: string): ResultColumn;
+function min(source: string): ResultColumn;
+function max(source: string): ResultColumn;
+function distinct(source: string): ResultColumn;
+function join(source: string, separator?: string): ResultColumn;
 ```
 
 ---
 
 ## 10. YAML Parser (backwards compatibility)
 
-Zod schemas validate YAML input and produce the same model types. All 45+ existing example dashboards continue to work unchanged.
+All 45+ existing example dashboards continue to work unchanged.
 
 ### Entry point
 
@@ -1087,20 +866,16 @@ export function parsePage(raw: unknown): Component;
 ### Pipeline
 
 ```
-YAML string
-  → js-yaml parse (raw object)
-  → property substitution (${name} replacement, skipping metric template fields)
-  → Zod schema validation
-  → desugaring transforms (YAML shortcuts → Component tree)
-  → Component (root page)
+YAML string → js-yaml → property substitution (skip metric template fields)
+  → Zod validation → desugaring → Component (root page)
 ```
 
 ### Desugaring rules
 
 | YAML shorthand | Model equivalent |
 |---|---|
-| `pages[].components: [...]` | `grid(12, at(0, y++, 12, 1, component))` — full-width stack |
-| `pages[].rows[].columns[].span: 6` | `at(x, y, 6, 1, ...)` — span converted to grid placement |
+| `pages[].components: [...]` | `grid(12, at(0, y++, 12, 1, component))` |
+| `pages[].rows[].columns[].span: 6` | `at(x, y, 6, 1, ...)` |
 | `html: "<h1>Hi</h1>"` | `{ type: "html", props: { content: "..." } }` |
 | `markdown: "# Hi"` | `{ type: "markdown", props: { content: "..." } }` |
 | `title: "Hi"` | `{ type: "title", props: { text: "..." } }` |
@@ -1109,63 +884,23 @@ YAML string
 | `div: "divId"` | `{ type: "slot-target", props: { id: "..." } }` |
 | `displayer.type: BARCHART` | `{ type: "bar-chart", props: { ... } }` |
 | `type: TABS` | `{ type: "tabs", props: { ... } }` |
+| `type: EXTERNAL` + `componentId` | `{ type: "iframe-plugin", props: { componentId: "...", settings: {...} } }` |
+| `displayer.component: echarts` | `{ type: "iframe-plugin", props: { componentId: "echarts", settings: {...} } }` |
 | `properties: { margin: 10px }` | `style: { margin: "10px" }` on the component |
-| `lookup.rowCount: 10` | `rowCount: 10` on the displayer props (extracted from lookup) |
-
-### Displayer settings desugaring
-
-The flat dot-notation map (`chart.width: 100`, `general.title: "Foo"`) is unflattened into typed props. Known keys map to typed fields. `extraConfiguration` JSON string is parsed into the `extra` field on `ChartSettings`. Unknown keys on `iframe-plugin` type go to `settings` escape hatch. Unknown keys on casehub-owned displayer types are rejected (parse error).
+| `lookup.rowCount: 10` | `rowCount: 10` on the data component props (extracted from lookup) |
+| `displayer.html.html: "..."` | `html.template: "..."` (field rename) |
+| `displayer.html.javascript: "..."` | `html.javascript: "..."` (passthrough) |
 
 ### Navigation component desugaring (navGroupId + targetDivId)
 
-The existing YAML format uses `navGroupId` + `targetDivId` + `NavTree` for indirect page composition:
-
-```yaml
-- type: TABS
-  properties:
-    navGroupId: Metrics
-    targetDivId: Metrics_Div
-- div: Metrics_Div
-
-navTree:
-  root_items:
-    - type: GROUP
-      id: Metrics
-      children:
-        - page: CPU Usage
-        - page: Memory
-```
-
-The parser resolves this into direct slot composition:
+The parser resolves `navGroupId` + `targetDivId` + `NavTree` into direct slot composition:
 
 1. Find each component with a `navGroupId` property
 2. Look up the `navGroupId` in the `navTree` (if present) to find child page names
 3. For each child page name, find the corresponding page in `pages` and extract its content
 4. Map each child into a named slot on the navigation component (tab label → slot name)
-5. Remove the `div` placeholder component — it's no longer needed (the content is inlined)
+5. Remove the `div` placeholder component
 6. If no `navTree` is present, or the `navGroupId` is not found, fall back to using page names from the `pages` array that match the group ID
-
-This is non-trivial semantic resolution but it's a parse-time concern — the model has no concept of `navGroupId` or `targetDivId`. The output is the same slot-based `tabs` component the DSL produces.
-
-### Zod schema constraint
-
-```typescript
-const yamlRootPageSchema: z.ZodType<Component> = z.object({
-  pages: z.array(yamlPageSchema).min(1),
-  datasets: z.array(externalDataSetDefSchema).optional(),
-  global: yamlPageSettingsSchema.optional(),
-  properties: z.record(z.string()).optional(),
-}).transform(normalizeToRootPage);
-// The YAML `pages:` key is sugar — desugars to a root page containing child pages.
-```
-
-`z.ZodType<Component>` ensures the schema output matches the model interface. The parser returns a `Component` of type `"page"` — the root page.
-
-### Reused existing code
-
-- `externalDataSetDefSchema` from `@casehub/data` — unchanged
-- `parseLookup()` from `@casehub/data` — called within displayer desugaring
-- Filter, group, sort schemas — unchanged
 
 ---
 
@@ -1176,57 +911,52 @@ packages/
 ├── casehub-ui/                         # @casehub/ui
 │   └── src/
 │       ├── model/
-│       │   ├── types.ts                # Component, PageProps, PageSettings, PageChild,
-│       │   │                           #   LazyPage, GridItem, GridPlacement, AccessControl,
-│       │   │                           #   FilterSettings, DrillDown, DataComponentDefaults,
-│       │   │                           #   LookupDefaults, DataSetDefaults,
-│       │   │                           #   RefreshSettings, PermissionContext, ALLOW_ALL
-│       │   ├── displayer-types.ts      # DisplayerCommon, ChartSettings,
+│       │   ├── types.ts                # Component, GridItem, GridPlacement, AccessControl,
+│       │   │                           #   ViewState, Site, PermissionContext, ALLOW_ALL
+│       │   │                           #   (ZERO external deps — extractable)
+│       │   ├── page-types.ts           # PageProps, PageSettings, DataComponentDefaults,
+│       │   │                           #   LookupDefaults, DataSetDefaults
+│       │   │                           #   (depends on @casehub/data)
+│       │   ├── displayer-types.ts      # DataComponentCommon, ChartSettings, RefreshSettings,
 │       │   │                           #   BarChartProps, LineChartProps, ScatterChartProps,
-│       │   │                           #   TableProps, MetricProps, MeterProps, SelectorProps,
-│       │   │                           #   MapProps, IframePluginProps
+│       │   │                           #   BubbleChartProps, TableProps, MetricProps, MeterProps,
+│       │   │                           #   SelectorProps, MapProps, IframePluginProps
+│       │   │                           #   (depends on @casehub/data)
 │       │   ├── type-guards.ts          # isBarChart(), isTable(), ..., ComponentTypeRegistry,
 │       │   │                           #   getProps()
 │       │   └── index.ts
 │       │
 │       ├── dsl/
-│       │   ├── builders.ts             # dashboard(), page(), grid(), at(), columns(),
-│       │   │                           #   tabs(), panel(), barChart(), scatterChart(), etc.
+│       │   ├── builders.ts             # page(), grid(), at(), columns(),
+│       │   │                           #   tabs(), panel(), carousel(), barChart(), etc.
 │       │   ├── lookup-helpers.ts       # lookup(), groupBy(), groupByCalendar(),
 │       │   │                           #   filterBy(), and(), or(), not(), sortBy(),
 │       │   │                           #   col(), sum(), avg(), count(), etc.
 │       │   └── index.ts
 │       │
 │       ├── parser/
-│       │   ├── page-parser.ts     # parsePage()
-│       │   ├── page-schema.ts     # Zod schemas
+│       │   ├── page-parser.ts          # parsePage()
+│       │   ├── page-schema.ts          # Zod schemas
 │       │   ├── component-desugar.ts    # YAML shorthand → Component transforms
 │       │   ├── displayer-desugar.ts    # flat settings map → typed props
 │       │   ├── nav-desugar.ts          # navGroupId + targetDivId → slot composition
 │       │   ├── property-substitution.ts
 │       │   └── index.ts
 │       │
-│       └── index.ts                    # public re-exports
+│       └── index.ts
 │
 ├── casehub-data/                       # @casehub/data (existing packages/core/)
 │   └── src/
-│       ├── dataset/                    # types, lookup, filter, group, sort, ops, manager
-│       │   └── external/              # ExternalDataSetDef, providers, extraction, presets
-│       └── expression/                # evaluator, jsonata-bridge
+│       ├── dataset/
+│       │   └── external/
+│       └── expression/
 │
 ├── casehub-viz/                        # @casehub/viz (replaces React components/)
 │   └── src/
 │       ├── bar-chart.ts               # <casehub-bar-chart>
-│       ├── line-chart.ts              # <casehub-line-chart>
-│       ├── pie-chart.ts              # <casehub-pie-chart>
-│       ├── scatter-chart.ts           # <casehub-scatter-chart>
-│       ├── table.ts                   # <casehub-table>
-│       ├── metric.ts                  # <casehub-metric>
-│       ├── meter.ts                   # <casehub-meter>
-│       ├── selector.ts               # <casehub-selector>
-│       ├── map.ts                     # <casehub-map>
-│       ├── timeseries.ts             # <casehub-timeseries>
-│       ├── bubble-chart.ts           # <casehub-bubble-chart>
+│       ├── line-chart.ts, pie-chart.ts, scatter-chart.ts, bubble-chart.ts
+│       ├── table.ts, metric.ts, meter.ts, selector.ts, map.ts
+│       ├── timeseries.ts
 │       └── index.ts
 ```
 
@@ -1242,12 +972,13 @@ This design is a **superset** of the Java RuntimeModel, not a 1:1 port.
 - Global settings with displayer/dataset defaults and merge semantics
 - Cross-filtering with notification/listening and page scope
 - Property substitution with `${name}`
-- All component types (bar, line, area, pie, scatter, table, metric, meter, selector, map, timeseries, bubble, html, markdown, title, tabs, panel, screen)
+- All component types (bar, line, area, pie, scatter, table, metric, meter, selector, map, timeseries, bubble, html, markdown, title, tabs, carousel, panel, screen)
 - `extraConfiguration` passthrough for ECharts native options (as `ChartSettings.extra`)
+- Metric subtypes (card, card2, plain-text, quota) as built-in templates
 
 **Modernized:**
 - `dragTypeName` Java class names → clean string type IDs (`"bar-chart"`, `"tabs"`)
-- Flat `Map<String, String>` settings → typed props per displayer type
+- Flat `Map<String, String>` settings → typed props per data component type
 - Bootstrap 12-column `span` → CSS Grid coordinate placement with `{x, y, w, h}`
 - Fixed Row/Column hierarchy → slot-based recursive component tree
 - React iframe components → Web Components with Shadow DOM
@@ -1255,11 +986,13 @@ This design is a **superset** of the Java RuntimeModel, not a 1:1 port.
 - `LayoutComponentPart` / CSS parts → standard Web Component `::part()` selectors
 - `navGroupId` + `targetDivId` indirection → direct slot composition
 - `ColumnSettings` field names → cleaner `id`, `name`, `expression`, `pattern`, `empty`
+- `DisplayerCommon` → `DataComponentCommon` (domain-neutral naming)
 
 **Dropped:**
-- `dragTypeName` (Java class name identifiers — replaced by clean type strings)
-- `LayoutComponentPart` (editor-specific CSS plumbing — replaced by Web Component `::part()`)
+- `dragTypeName` (replaced by clean type strings)
+- `LayoutComponentPart` (replaced by Web Component `::part()`)
 - `DisplayerSubType` as a shared enum (replaced by per-type `subtype` unions)
+- `DisplayerType.PIE_3D` (3D rendering is a CSS/WebGL concern, not a chart subtype; use `extra` if needed)
 - `DataSetLookup.metadata` (zero consumers — removed per YAGNI, issue #5)
 - `RuntimeModel.lastModified` (storage metadata, not model)
 
@@ -1267,75 +1000,58 @@ This design is a **superset** of the Java RuntimeModel, not a 1:1 port.
 
 ## 13. Testing Strategy
 
-### Model types (`casehub-ui/src/model/`)
+### Model types
 - Immutability: all returned objects are frozen
-- Type discrimination: each component type maps to correct props interface
 - Type guards: `isBarChart()` correctly narrows, rejects wrong types
 - ComponentTypeRegistry: `getProps()` returns typed props, throws on mismatch
+- Component.id: deterministic IDs generated for grid items
 
-### DSL builders (`casehub-ui/src/dsl/`)
-- Each builder: correct `type`, `props`, `style`, and `slots` structure
-- `grid()` + `at()`: placement validation (no overlaps, within column bounds)
-- `columns()`: distribution normalization; throws on length mismatch with slot contents
-- `tabs()`, `panel()`, `accordion()`: correct slot naming from labels
-- `page()` with options: datasets/settings extraction from variadic args
-- Composition: nested builders produce valid recursive trees
-- Branded types: `lookup("sales")` produces `DataSetId`; `filterBy("col", ...)` produces `ColumnId`
+### DSL builders
+- Each builder: correct `type`, `id`, `props`, `style`, and `slots` structure
+- `grid()` + `at()`: placement validation (no overlaps, within column bounds), deterministic ID generation
+- `columns()`: throws on distribution/slot-contents length mismatch
+- `page()`: name validation (no `/` in names), duplicate name detection at same level
 - Filter combinators: `and(filterBy(...), or(filterBy(...), filterBy(...)))` produces correct expression tree
 - `groupBy(null, sum("revenue"))` produces `groupingKey: null`
-- `groupBy("region", col("region"))` with default strategy/maxIntervals/etc.
-- `groupByCalendar("date", "MONTH", col("date"), sum("revenue"))` produces fixedCalendar strategy
-- `col()`, `sum()`, `avg()` etc. produce correct `ResultColumn` from `@casehub/data`
+- Branded types: `lookup("sales")` produces `DataSetId`
 
-### YAML parser (`casehub-ui/src/parser/`)
-- **All 45+ existing example dashboards parse without error** — backwards compatibility regression suite
+### YAML parser
+- **All 45+ existing example dashboards parse without error**
 - Property substitution: `${name}` replaced; metric template `${value}`, `${title}`, `${this}` NOT replaced
 - Desugaring: `components` shorthand → grid, `rows`/`columns`/`span` → grid placements
-- Component shortcuts: `html`, `markdown`, `title`, `screen`, `panel`, `div` → correct Component type
-- `properties` on components → `style` field on Component
-- Displayer desugaring: flat dot-notation → typed props, `extraConfiguration` → `ChartSettings.extra`, unknown keys rejected (casehub types) or collected (iframe-plugin)
-- `rowCount`/`rowOffset` in lookup YAML → extracted to displayer props, NOT in DataSetLookup
+- `html.html` → `html.template` rename
+- External component desugaring: both `type: EXTERNAL` and `displayer.component:` syntaxes
 - Navigation desugaring: `navGroupId` + `targetDivId` + navTree → resolved into named slots
-- Global merge: displayer defaults merged into each component (shallow, per-field, own-wins)
-- Global dataset merge: dataset defaults merged into each definition
-- Lookup parsing: delegates to existing `parseLookup()` — no duplication
-- Error paths: missing pages → ZodError, invalid displayer type → ZodError, unknown dataset ref → validation warning
-- Round-trip: DSL-built dashboard serialized to YAML, re-parsed, produces equivalent model
-
-### Cross-filtering (`FilterSettings`)
-- Page-scoped broadcast: emitter → all listeners on page
-- Group scoping: emitter in group → only group listeners
-- Ungrouped listener: receives events from all emitters
-- Self-apply: emitter filters itself when enabled
-- Drill-down: produces navigation event with parameter mapping
+- `rowCount`/`rowOffset` in lookup YAML → extracted to data component props
+- `extraConfiguration` → `ChartSettings.extra`
+- Global merge: cascading, shallow, per-field, own-wins
 
 ### Access control & page loading
 - `ALLOW_ALL` PermissionContext: all checks return true
-- Component with `access: { roles: ["admin"] }` + non-admin context → not rendered
-- Component without `access` → always rendered regardless of context
-- `LazyPage` with `href` → resolved to inline Component on fetch
-- Page filtering: dashboard with 5 pages, 2 restricted → filtered payload has 3 pages
-- Recursive filtering: tabs component with 3 tabs, 1 restricted → 2 tabs in output
-- Navigation omission: restricted pages absent from tab/tree/menu entries (not blocked, invisible)
-- `DataAccessPolicy` on dataset: model carries declaration, TS engine ignores it
+- `lazy-page` component: fetched on navigation, replaced with page content
+- Recursive filtering: tabs with 3 tabs, 1 restricted → 2 tabs in output
+- Direct URL to restricted page → 403, not 404
+
+### View state
+- `activeFilters` keyed by ColumnId, multi-selector merge produces union
+- `layoutOverrides` references Component.id
+- Deep link round-trip: serialize → parse → same state
+- Multi-value filter URL encoding: `region:North|South`
 
 ### ColumnSettings migration (`@casehub/data`)
-- Renamed fields (`id` not `columnId`, `name` not `columnName`, etc.) compile and pass all existing tests
-- `Column.settings` references updated
+- Renamed fields compile and pass all existing tests
 
 ---
 
 ## 14. Deferred Concerns
 
-Items out of scope for issue #8:
-
-- **DnD visual builder** — pure TS implementation operating over this model. The builder generates the model; the model is the source of truth.
-- **Web Component implementations** (`@casehub/viz`) — the custom elements that render each component type. Separate issue.
-- **`@casehub/ui` extraction** — making the component model + layout a standalone shared package for other casehub UIs. Noted as the architectural direction; extraction is a later concern.
-- **Responsive layouts** — breakpoint-aware grid configurations (`ResponsiveLayouts` from react-grid-layout). Backwards-compatible addition.
-- **Workspace layout primitives** — `split()` (resizable panes) for IDE-like layouts. Same component model, different layout component type. Another casehub app needs this.
-- **JSON Schema generation** — from Zod schemas, for editor tooling and external validation.
-- **`@casehub/data-relay`** — Quarkus server-side HTTP proxy.
-- **Component registration / manifest** — how `@casehub/viz` registers component types with `@casehub/ui` so the DnD builder knows what's available, what slots they accept, and what props they expose.
-- **Undo/redo** — model diffing for the DnD builder's edit history.
-- **Theming** — CSS custom properties for dark/light mode and brand customization across Web Components.
+- **DnD visual builder** — pure TS implementation operating over this model
+- **Web Component implementations** (`@casehub/viz`)
+- **`@casehub/ui` extraction** — extracting `types.ts` (zero-dep core) into a shared package
+- **Responsive layouts** — breakpoint-aware grid configurations
+- **Workspace layout primitives** — `split()` (resizable panes) for IDE-like layouts
+- **JSON Schema generation** — from Zod schemas
+- **`@casehub/data-relay`** — Quarkus server-side HTTP proxy
+- **Component registration / manifest** — how `@casehub/viz` registers component types with `@casehub/ui`
+- **Undo/redo** — model diffing for the DnD builder's edit history
+- **Theming** — CSS custom properties for dark/light mode and brand customization
