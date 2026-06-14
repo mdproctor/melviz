@@ -308,4 +308,60 @@ describe("applyChartSettings", () => {
     expect(result.xAxis).toEqual({ type: "category", name: "Category" });
     expect(result.grid).toEqual({ containLabel: true, top: 20 });
   });
+
+  it("skips xAxis and yAxis when cartesianAxes is false", () => {
+    const option = {};
+    const props = {
+      title: "Pie Chart",
+      xAxis: { title: "Should be ignored" },
+      yAxis: { title: "Should be ignored" },
+      legend: { show: true },
+    };
+
+    const result = applyChartSettings(option, props, { cartesianAxes: false });
+
+    expect(result.xAxis).toBeUndefined();
+    expect(result.yAxis).toBeUndefined();
+    expect(result.title).toEqual({ text: "Pie Chart" });
+    expect(result.legend).toEqual({ show: true });
+  });
+
+  it("applies margin and zoom even when cartesianAxes is false", () => {
+    const option = {};
+    const props = {
+      margin: { top: 10, left: 20 },
+      zoom: true,
+    };
+
+    const result = applyChartSettings(option, props, { cartesianAxes: false });
+
+    expect(result.grid).toEqual({ top: 10, left: 20 });
+    expect(result.dataZoom).toEqual([{ type: "inside" }, { type: "slider" }]);
+  });
+
+  it("applies xAxis and yAxis when cartesianAxes is explicitly true", () => {
+    const option = {};
+    const props = {
+      xAxis: { title: "X" },
+      yAxis: { title: "Y" },
+    };
+
+    const result = applyChartSettings(option, props, { cartesianAxes: true });
+
+    expect(result.xAxis).toEqual({ name: "X" });
+    expect(result.yAxis).toEqual({ name: "Y" });
+  });
+
+  it("applies xAxis and yAxis when cartesianAxes is omitted (default true)", () => {
+    const option = {};
+    const props = {
+      xAxis: { title: "X" },
+      yAxis: { title: "Y" },
+    };
+
+    const result = applyChartSettings(option, props);
+
+    expect(result.xAxis).toEqual({ name: "X" });
+    expect(result.yAxis).toEqual({ name: "Y" });
+  });
 });

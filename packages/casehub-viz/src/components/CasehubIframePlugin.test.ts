@@ -99,8 +99,8 @@ describe("CasehubIframePlugin", () => {
       });
     }
 
-    // Trigger render again to send messages
-    element.dataSet = dataset;
+    // Fire load event to trigger message sending
+    iframe!.dispatchEvent(new Event("load"));
 
     expect(postMessageSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -147,7 +147,8 @@ describe("CasehubIframePlugin", () => {
       });
     }
 
-    element.dataSet = dataset;
+    // Fire load event to trigger message sending
+    iframe!.dispatchEvent(new Event("load"));
 
     expect(postMessageSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -277,5 +278,71 @@ describe("CasehubIframePlugin", () => {
     );
 
     expect(filterHandler).not.toHaveBeenCalled();
+  });
+
+  it("recreates iframe when componentId changes", () => {
+    const props1: IframePluginProps = {
+      componentId: "echarts",
+    };
+
+    const dataset: TypedDataSet = {
+      columns: [{ id: "x", type: ColumnType.TEXT }],
+      rows: [],
+    };
+
+    element.props = props1;
+    element.dataSet = dataset;
+
+    const iframe1 = element.shadowRoot!.querySelector("iframe");
+    expect(iframe1).toBeTruthy();
+    expect(iframe1!.src).toContain("/melviz/component/echarts/index.html");
+
+    // Change componentId
+    const props2: IframePluginProps = {
+      componentId: "llm-prompter",
+    };
+
+    element.props = props2;
+    element.dataSet = dataset;
+
+    const iframe2 = element.shadowRoot!.querySelector("iframe");
+    expect(iframe2).toBeTruthy();
+    expect(iframe2!.src).toContain("/melviz/component/llm-prompter/index.html");
+    expect(iframe2).not.toBe(iframe1); // Different iframe instance
+  });
+
+  it("waits for iframe load before sending messages", async () => {
+    const props: IframePluginProps = {
+      componentId: "echarts",
+    };
+
+    const dataset: TypedDataSet = {
+      columns: [{ id: "x", type: ColumnType.TEXT }],
+      rows: [],
+    };
+
+    const postMessageSpy = vi.fn();
+
+    element.props = props;
+    element.dataSet = dataset;
+
+    const iframe = element.shadowRoot!.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+
+    // Mock contentWindow but don't fire load yet
+    Object.defineProperty(iframe, "contentWindow", {
+      value: { postMessage: postMessageSpy },
+      writable: true,
+    });
+
+    // Messages should not be sent yet
+    expect(postMessageSpy).not.toHaveBeenCalled();
+
+    // Fire load event
+    iframe!.dispatchEvent(new Event("load"));
+
+    // Now messages should be sent
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(postMessageSpy).toHaveBeenCalled();
   });
 });

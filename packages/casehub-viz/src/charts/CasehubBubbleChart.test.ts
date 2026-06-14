@@ -32,6 +32,7 @@ vi.mock("echarts/components", () => ({
   TooltipComponent: { type: "mock-tooltip" },
   LegendComponent: { type: "mock-legend" },
   DatasetComponent: { type: "mock-dataset" },
+  TitleComponent: { type: "mock-title" },
 }));
 
 // Import after mocks
@@ -210,6 +211,27 @@ describe("CasehubBubbleChart", () => {
       const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
 
       expect(option.title).toEqual({ text: "Bubble Chart" });
+    });
+
+    it("handles empty values array (all nulls) without crashing", () => {
+      const ds = makeDataSet(
+        [["x", "NUMBER"], ["y", "NUMBER"], ["size", "LABEL"]],
+        [[10, 20, null], [30, 40, null], [50, 60, null]],
+      );
+      const props: BubbleChartProps = { lookup: mockLookup("test") };
+
+      el.props = props;
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
+      const series = (option.series as Record<string, unknown>[])[0]!;
+      const symbolSizeFn = series.symbolSize as (value: unknown[]) => number;
+
+      // Should use constant size (midpoint of 5 and 50 = 27.5)
+      expect(symbolSizeFn([10, 20, null])).toBe(27.5);
+      expect(symbolSizeFn([30, 40, null])).toBe(27.5);
+      expect(symbolSizeFn([50, 60, null])).toBe(27.5);
     });
   });
 });

@@ -17,17 +17,36 @@ iframe {
 export class CasehubIframePlugin extends CasehubElement<IframePluginProps> {
   private _iframe: HTMLIFrameElement | undefined;
   private _messageHandler: ((e: MessageEvent) => void) | undefined;
+  private _loaded = false;
+  private _pendingProps: IframePluginProps | undefined;
+  private _pendingDataset: TypedDataSet | undefined;
 
   protected override render(
     container: HTMLDivElement,
     props: IframePluginProps,
     dataset: TypedDataSet,
   ): void {
+    const expectedSrc = `/melviz/component/${props.componentId}/index.html`;
+
+    // Check if iframe exists with wrong src (componentId changed)
+    if (this._iframe && this._iframe.src && !this._iframe.src.endsWith(expectedSrc)) {
+      // Remove old iframe
+      this._iframe.remove();
+      this._iframe = undefined;
+      this._loaded = false;
+    }
+
     if (!this._iframe) {
       this.createIframe(container, props);
     }
 
-    this.sendMessages(props, dataset);
+    // If loaded, send immediately; otherwise store pending
+    if (this._loaded) {
+      this.sendMessages(props, dataset);
+    } else {
+      this._pendingProps = props;
+      this._pendingDataset = dataset;
+    }
   }
 
   private createIframe(container: HTMLDivElement, props: IframePluginProps): void {
@@ -43,6 +62,17 @@ export class CasehubIframePlugin extends CasehubElement<IframePluginProps> {
     this._iframe.src = `/melviz/component/${props.componentId}/index.html`;
     this._iframe.style.width = props.width ?? "100%";
     this._iframe.style.height = props.height ?? "100%";
+
+    // Load event listener
+    this._iframe.addEventListener("load", () => {
+      this._loaded = true;
+      if (this._pendingProps && this._pendingDataset) {
+        this.sendMessages(this._pendingProps, this._pendingDataset);
+        this._pendingProps = undefined;
+        this._pendingDataset = undefined;
+      }
+    });
+
     container.appendChild(this._iframe);
 
     // Message listener

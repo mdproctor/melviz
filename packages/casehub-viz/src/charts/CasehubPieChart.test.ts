@@ -31,6 +31,7 @@ vi.mock("echarts/components", () => ({
   TooltipComponent: { type: "mock-tooltip" },
   LegendComponent: { type: "mock-legend" },
   DatasetComponent: { type: "mock-dataset" },
+  TitleComponent: { type: "mock-title" },
 }));
 
 // Import after mocks

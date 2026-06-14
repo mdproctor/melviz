@@ -1,13 +1,14 @@
 import { init, use, type ECharts } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
+import { TitleComponent } from "echarts/components";
 import { CasehubElement } from "./CasehubElement.js";
 import type { VizComponentProps } from "./types.js";
 import type { TypedDataSet } from "@casehub/data/dist/dataset/types.js";
 import type { ChartSettings } from "@casehub/ui/dist/model/displayer-types.js";
 import type { FilterSettings } from "@casehub/ui/dist/model/component-props.js";
 
-// Register the Canvas renderer once at module load
-use([CanvasRenderer]);
+// Register the Canvas renderer and TitleComponent once at module load
+use([CanvasRenderer, TitleComponent]);
 
 export interface CasehubFilterDetail {
   readonly columnId: string;

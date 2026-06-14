@@ -39,9 +39,8 @@ export class CasehubPieChart extends CasehubChartElement<PieChartProps> {
       tooltip: { trigger: "item" },
     };
 
-    // Stage 3: Apply ChartSettings (but skip xAxis/yAxis — pie has no axes)
-    // Create a modified applyChartSettings that doesn't set axes
-    option = applyChartSettingsNonCartesian(option, props);
+    // Stage 3: Apply ChartSettings (skip xAxis/yAxis — pie has no axes)
+    option = applyChartSettings(option, props, { cartesianAxes: false });
 
     // Stage 4: Deep merge extra
     if (props.extra) {
@@ -50,53 +49,6 @@ export class CasehubPieChart extends CasehubChartElement<PieChartProps> {
 
     return option;
   }
-}
-
-/**
- * Apply chart settings but skip xAxis/yAxis (for pie charts).
- */
-function applyChartSettingsNonCartesian(
-  option: Record<string, unknown>,
-  props: { title?: string } & PieChartProps,
-): Record<string, unknown> {
-  // Title
-  if (props.title !== undefined) {
-    option.title = { text: props.title };
-  }
-
-  // Legend
-  if (props.legend !== undefined) {
-    const legend: Record<string, unknown> = { ...((option.legend as Record<string, unknown>) || {}) };
-
-    if (props.legend.show !== undefined) {
-      legend.show = props.legend.show;
-    }
-
-    if (props.legend.position !== undefined) {
-      switch (props.legend.position) {
-        case "top":
-          legend.top = 0;
-          break;
-        case "bottom":
-          legend.bottom = 0;
-          break;
-        case "left":
-          legend.left = 0;
-          legend.orient = "vertical";
-          break;
-        case "right":
-          legend.right = 0;
-          legend.orient = "vertical";
-          break;
-      }
-    }
-
-    option.legend = legend;
-  }
-
-  // Skip xAxis/yAxis for pie charts
-
-  return option;
 }
 
 customElements.define("casehub-pie-chart", CasehubPieChart);

@@ -86,8 +86,8 @@ export class CasehubMeter extends CasehubChartElement<MeterProps> {
       tooltip: { trigger: "item" },
     };
 
-    // Apply ChartSettings (title, legend, extra — gauge doesn't use xAxis/yAxis/grid)
-    option = applyChartSettings(option, props);
+    // Apply ChartSettings (skip xAxis/yAxis — gauge has no axes)
+    option = applyChartSettings(option, props, { cartesianAxes: false });
 
     // Deep merge extra
     if (props.extra) {

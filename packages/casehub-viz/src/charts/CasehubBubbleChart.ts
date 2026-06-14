@@ -34,16 +34,28 @@ export class CasehubBubbleChart extends CasehubChartElement<BubbleChartProps> {
       return cellToRaw(cell);
     }).filter((v): v is number => typeof v === "number");
 
-    const dataMin = Math.min(...values);
-    const dataMax = Math.max(...values);
-    const range = dataMax - dataMin || 1;
+    let dataMin: number;
+    let dataMax: number;
+    let range: number;
+
+    if (values.length === 0) {
+      // No valid values — use constant symbol size (midpoint)
+      const constantSize = (minR + maxR) / 2;
+      dataMin = 0;
+      dataMax = 0;
+      range = 1;
+    } else {
+      dataMin = Math.min(...values);
+      dataMax = Math.max(...values);
+      range = dataMax - dataMin || 1;
+    }
 
     const series: Record<string, unknown> = {
       type: "scatter",
       encode: { x: 0, y: 1 },
       symbolSize: (value: unknown[]) => {
         const v = value[2];
-        if (typeof v !== "number") return minR;
+        if (typeof v !== "number") return values.length === 0 ? (minR + maxR) / 2 : minR;
         return minR + ((v - dataMin) / range) * (maxR - minR);
       },
     };

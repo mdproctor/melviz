@@ -22,14 +22,29 @@ export function datasetToSource(
 }
 
 /**
+ * Options for applyChartSettings behavior.
+ */
+export interface ChartSettingsOptions {
+  /**
+   * Whether to apply xAxis/yAxis settings (for Cartesian charts).
+   * Default: true
+   */
+  readonly cartesianAxes?: boolean;
+}
+
+/**
  * Stage 3: Apply typed ChartSettings fields to ECharts option.
  *
  * Mutates and returns the option object. Only sets fields that are defined.
+ *
+ * @param settingsOptions - Optional configuration to control which settings are applied
  */
 export function applyChartSettings(
   option: Record<string, unknown>,
   props: { title?: string } & ChartSettings,
+  settingsOptions?: ChartSettingsOptions,
 ): Record<string, unknown> {
+  const withAxes = settingsOptions?.cartesianAxes ?? true;
   // Title
   if (props.title !== undefined) {
     option.title = { text: props.title };
@@ -65,8 +80,8 @@ export function applyChartSettings(
     option.legend = legend;
   }
 
-  // X-Axis
-  if (props.xAxis !== undefined) {
+  // X-Axis (only for Cartesian charts)
+  if (withAxes && props.xAxis !== undefined) {
     const xAxis: Record<string, unknown> = { ...((option.xAxis as Record<string, unknown>) || {}) };
 
     if (props.xAxis.title !== undefined) {
@@ -80,8 +95,8 @@ export function applyChartSettings(
     option.xAxis = xAxis;
   }
 
-  // Y-Axis
-  if (props.yAxis !== undefined) {
+  // Y-Axis (only for Cartesian charts)
+  if (withAxes && props.yAxis !== undefined) {
     const yAxis: Record<string, unknown> = { ...((option.yAxis as Record<string, unknown>) || {}) };
 
     if (props.yAxis.title !== undefined) {

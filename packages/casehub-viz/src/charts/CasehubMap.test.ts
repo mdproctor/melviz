@@ -35,6 +35,7 @@ vi.mock("echarts/components", () => ({
   TooltipComponent: { type: "mock-tooltip" },
   LegendComponent: { type: "mock-legend" },
   DatasetComponent: { type: "mock-dataset" },
+  TitleComponent: { type: "mock-title" },
 }));
 
 // Import after mocks
@@ -155,6 +156,26 @@ describe("CasehubMap", () => {
       const visualMap = option.visualMap as Record<string, unknown>;
       const inRange = visualMap.inRange as Record<string, unknown>;
       expect(inRange.color).toEqual(["#ff0000", "#00ff00", "#0000ff"]);
+    });
+
+    it("handles empty data array without crashing", () => {
+      const ds = makeDataSet(
+        [["country", "LABEL"], ["value", "NUMBER"]],
+        [],
+      );
+      const props: MapProps = { lookup: mockLookup("test") };
+
+      el.props = props;
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
+
+      expect(option.visualMap).toMatchObject({
+        min: 0,
+        max: 0,
+        calculable: true,
+      });
     });
   });
 

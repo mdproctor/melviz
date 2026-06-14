@@ -67,8 +67,8 @@ export class CasehubMap extends CasehubChartElement<MapProps> {
       }));
 
       const values = data.map(d => d.value);
-      const minValue = Math.min(...values);
-      const maxValue = Math.max(...values);
+      const minValue = values.length === 0 ? 0 : Math.min(...values);
+      const maxValue = values.length === 0 ? 0 : Math.max(...values);
 
       // Parse colorScheme if provided
       const colorScheme = props.colorScheme
@@ -93,8 +93,8 @@ export class CasehubMap extends CasehubChartElement<MapProps> {
       };
     }
 
-    // Stage 3: Apply ChartSettings
-    option = applyChartSettings(option, props);
+    // Stage 3: Apply ChartSettings (skip xAxis/yAxis — map has no axes)
+    option = applyChartSettings(option, props, { cartesianAxes: false });
 
     // Stage 4: Deep merge extra
     if (props.extra) {
