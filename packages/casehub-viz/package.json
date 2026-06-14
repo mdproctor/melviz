@@ -1,0 +1,25 @@
+{
+  "name": "@casehub/viz",
+  "version": "0.0.1",
+  "description": "CaseHub Viz — Web Component visualization wrappers",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@casehub/data": "workspace:*",
+    "@casehub/ui": "workspace:*",
+    "echarts": "^5.6.0"
+  },
+  "devDependencies": {
+    "rimraf": "^6.1.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "Apache-2.0"
+}
