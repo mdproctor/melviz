@@ -54,15 +54,17 @@ export class CasehubMeter extends CasehubChartElement<MeterProps> {
     let value = 0;
     if (dataset.rows.length > 0) {
       const firstRow = dataset.rows[0];
-      // Find first NUMBER column (skip column 0 if it's LABEL/TEXT)
-      for (let i = 0; i < dataset.columns.length; i++) {
-        const col = dataset.columns[i];
-        if (col.type === "NUMBER") {
-          const rawValue = cellToRaw(firstRow.cell(col.id));
-          if (typeof rawValue === "number") {
-            value = rawValue;
+      if (firstRow) {
+        // Find first NUMBER column (skip column 0 if it's LABEL/TEXT)
+        for (let i = 0; i < dataset.columns.length; i++) {
+          const col = dataset.columns[i];
+          if (col && col.type === "NUMBER") {
+            const rawValue = cellToRaw(firstRow.cell(col.id));
+            if (typeof rawValue === "number") {
+              value = rawValue;
+            }
+            break;
           }
-          break;
         }
       }
     }
