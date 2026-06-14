@@ -9,6 +9,7 @@
   "workspaces": [
     "core/",
     "packages/*",
+    "packages/casehub-ui",
     "components/*",
     "webapp/",
     "examples/"
