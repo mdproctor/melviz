@@ -34,9 +34,10 @@ Two data engines share the same model and operation semantics. The TS engine wor
 ### Dependency graph
 
 ```
-@casehub/ui/model/types.ts          → (no deps, pure TS — extractable)
+@casehub/ui/model/types.ts           → (no deps, pure TS — extractable)
+@casehub/ui/model/component-props.ts → (no deps, pure TS — extractable)
 @casehub/ui/model/displayer-types.ts → @casehub/data
-@casehub/ui/model/page-types.ts     → @casehub/data
+@casehub/ui/model/page-types.ts      → @casehub/data
 @casehub/ui/dsl                     → @casehub/ui/model, @casehub/data
 @casehub/ui/parser                  → @casehub/ui/model, @casehub/data, zod
 @casehub/viz                        → @casehub/ui/model, @casehub/data, echarts
@@ -539,6 +540,7 @@ interface IframePluginProps {
   readonly width?: string;
   readonly height?: string;
   readonly filter?: FilterSettings;
+  readonly refresh?: RefreshSettings;       // host-side: controls when to re-query and push fresh data
 }
 ```
 
@@ -749,7 +751,7 @@ interface LayoutOverride {
 
 **`activeFilters` key semantics:** The key is `ColumnId` — the column being filtered. When two selectors filter the same column, their values merge (union). A selector emitting `{ columnId: "region", values: ["North"] }` and another emitting `{ columnId: "region", values: ["South"] }` produce `activeFilters: { region: ["North", "South"] }`. Different columns are independent entries.
 
-**`componentId` references:** `LayoutOverride.componentId`, `collapsedPanels`, and `scrollPositions` keys all reference `Component.id`. Components without an `id` cannot be referenced in view state.
+**`componentId` references:** `LayoutOverride.componentId`, `collapsedPanels`, `expandedNodes`, and `scrollPositions` keys all reference `Component.id`. Components without an `id` cannot be referenced in view state. `expandedNodes` contains the `Component.id` values of expanded tree/accordion nodes — nodes without an `id` cannot persist their expanded state.
 
 ### Client-side storage (layered)
 
@@ -870,6 +872,21 @@ function carousel(...entries: [string, ...Component[]][]): Component;
 function appGrid(...entries: [string, ...Component[]][]): Component;
 
 function panel(title: string, ...children: Component[]): Component;
+```
+
+### Component decorators
+
+Immutable transforms — return a new Component with the field set. Composable with any builder output.
+
+```typescript
+function withId(id: string, component: Component): Component;
+function withAccess(access: AccessControl, component: Component): Component;
+function withStyle(style: Record<string, string>, component: Component): Component;
+
+// Usage:
+withId("revenue-chart", barChart({ title: "Revenue", lookup: ... }))
+withAccess({ roles: ["admin"] }, panel("Admin Controls", ...))
+withStyle({ margin: "10px" }, html("<h1>Title</h1>"))
 ```
 
 ### Content
@@ -993,7 +1010,8 @@ packages/
 │       │   │                           #   (depends on @casehub/data)
 │       │   ├── component-props.ts      # GridProps, ColumnsProps, RowsProps, StackProps,
 │       │   │                           #   TabsProps, PanelProps, HtmlProps, MarkdownProps,
-│       │   │                           #   TitleProps, LazyPageProps, etc.
+│       │   │                           #   TitleProps, LazyPageProps, FilterSettings,
+│       │   │                           #   DrillDown, RefreshSettings
 │       │   │                           #   (ZERO external deps)
 │       │   ├── displayer-types.ts      # DataComponentCommon, ChartSettings, RefreshSettings,
 │       │   │                           #   BarChartProps, LineChartProps, ScatterChartProps,
