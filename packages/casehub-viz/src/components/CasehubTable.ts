@@ -100,21 +100,23 @@ export class CasehubTable extends CasehubElement<TableProps> {
           ? rowIdx
           : (pageSize ? this._currentPage * pageSize + rowIdx : rowIdx);
 
-        const columnId = dataset.columns[colIdx]!.id;
-        td.addEventListener("click", () => {
-          this.dispatchEvent(
-            new CustomEvent("casehub-filter", {
-              bubbles: true,
-              composed: true,
-              detail: {
-                columnId,
-                rowIndex: realRowIdx,
-                reset: false,
-                group: props.filter?.group,
-              },
-            }),
-          );
-        });
+        if (props.filter?.enabled) {
+          const columnId = dataset.columns[colIdx]!.id;
+          td.addEventListener("click", () => {
+            this.dispatchEvent(
+              new CustomEvent("casehub-filter", {
+                bubbles: true,
+                composed: true,
+                detail: {
+                  columnId,
+                  rowIndex: realRowIdx,
+                  reset: false,
+                  group: props.filter?.group,
+                },
+              }),
+            );
+          });
+        }
 
         tr.appendChild(td);
       }

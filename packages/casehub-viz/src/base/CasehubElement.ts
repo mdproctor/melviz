@@ -36,6 +36,7 @@ export abstract class CasehubElement<
 
   set props(value: P) {
     const oldLookup = this._props?.lookup;
+    const oldInterval = this._props?.refresh?.interval;
     this._props = value;
 
     if (value.lookup !== oldLookup) {
@@ -44,7 +45,9 @@ export abstract class CasehubElement<
     }
 
     this.requestDataIfNeeded();
-    this.startRefreshTimer();
+    if (value.refresh?.interval !== oldInterval) {
+      this.startRefreshTimer();
+    }
     this.update();
   }
 
@@ -196,7 +199,7 @@ export abstract class CasehubElement<
 
   // ── Resize hook ─────────────────────────────────────────────────────
 
-  onResize(): void {
+  protected onResize(): void {
     // Default no-op — subclasses override
   }
 
