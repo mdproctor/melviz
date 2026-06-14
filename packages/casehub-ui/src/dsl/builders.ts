@@ -14,6 +14,7 @@ import type {
 } from "../model/component-props.js";
 import type { PageProps, PageSettings } from "../model/page-types.js";
 import type { ExternalDataSetDef } from "@casehub/data/dist/dataset/external/types.js";
+import type { DataSetId } from "@casehub/data/dist/dataset/types.js";
 import type {
   BarChartProps,
   LineChartProps,
@@ -30,8 +31,12 @@ import type {
   IframePluginProps,
 } from "../model/displayer-types.js";
 
-// Module-level counter for grid IDs
+// Grid ID counter — scoped per page tree via resetGridCounter()
 let gridCounter = 0;
+
+export function resetGridCounter(): void {
+  gridCounter = 0;
+}
 
 export interface PageOptions {
   readonly datasets?: readonly ExternalDataSetDef[];
@@ -380,5 +385,31 @@ export function iframePlugin(props: IframePluginProps): Component {
   return freeze({
     type: "iframe-plugin",
     props: { ...props } as unknown as Record<string, unknown>,
+  });
+}
+
+// Dataset helpers
+
+export function dataset(
+  id: string,
+  url: string,
+  overrides?: Partial<Omit<ExternalDataSetDef, "uuid" | "url" | "content" | "join">>,
+): ExternalDataSetDef {
+  return Object.freeze({
+    uuid: id as DataSetId,
+    url,
+    ...overrides,
+  });
+}
+
+export function inlineDataset(
+  id: string,
+  content: string,
+  overrides?: Partial<Omit<ExternalDataSetDef, "uuid" | "url" | "content" | "join">>,
+): ExternalDataSetDef {
+  return Object.freeze({
+    uuid: id as DataSetId,
+    content,
+    ...overrides,
   });
 }

@@ -68,26 +68,13 @@ export function parsePage(raw: unknown): Component {
   // 6. Resolve navigation within each page's grid items
   const resolvedPages = childPages.map((page) => {
     if (page.items) {
-      const flatComponents = page.items.map((item) => item.component);
-      const resolved = resolveNavigation(flatComponents, childPages, navTree);
-
-      // Rebuild grid items with resolved components
       const resolvedItems: GridItem[] = [];
-      let resolvedIdx = 0;
-      for (const originalItem of page.items) {
-        if (originalItem.component.type === "slot-target") {
-          // slot-target is filtered out by resolveNavigation — skip it
-          continue;
-        }
-        if (resolvedIdx < resolved.length) {
-          resolvedItems.push({
-            ...originalItem,
-            component: resolved[resolvedIdx]!,
-          });
-          resolvedIdx++;
+      for (const item of page.items) {
+        const resolved = resolveNavigation([item.component], childPages, navTree);
+        if (resolved.length > 0) {
+          resolvedItems.push({ ...item, component: resolved[0]! });
         }
       }
-
       return { ...page, items: resolvedItems };
     }
 

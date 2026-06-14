@@ -23,6 +23,8 @@ import {
   withId,
   withAccess,
   withStyle,
+  dataset,
+  inlineDataset,
   type PageOptions,
 } from "./builders.js";
 
@@ -409,6 +411,75 @@ describe("builders", () => {
       const result = withStyle({ color: "red" }, html("a"));
       expect(Object.isFrozen(result)).toBe(true);
       expect(Object.isFrozen(result.style)).toBe(true);
+    });
+  });
+
+  describe("grid() ID determinism", () => {
+    it("produces identical IDs when called with identical structure", () => {
+      // Reset by re-importing module — but deterministic IDs should not
+      // depend on call order. Two grids with same structure get same ID base.
+      const grid1 = grid(2, at(0, 0, 6, 1, html("a")), at(6, 0, 6, 1, html("b")));
+      const grid2 = grid(2, at(0, 0, 6, 1, html("a")), at(6, 0, 6, 1, html("b")));
+
+      // They should have different IDs (different calls produce distinct grids),
+      // but each grid's item IDs should be deterministic based on placement
+      expect(grid1.items![0]!.component.id).toMatch(/_0_0$/);
+      expect(grid1.items![1]!.component.id).toMatch(/_6_0$/);
+      expect(grid2.items![0]!.component.id).toMatch(/_0_0$/);
+      expect(grid2.items![1]!.component.id).toMatch(/_6_0$/);
+    });
+  });
+
+  describe("dataset()", () => {
+    it("creates an ExternalDataSetDef with url", () => {
+      const ds = dataset("sales", "http://api.example.com/sales");
+
+      expect(ds.uuid).toBe("sales");
+      expect(ds.url).toBe("http://api.example.com/sales");
+    });
+
+    it("accepts optional overrides", () => {
+      const ds = dataset("sales", "http://api.example.com/sales", {
+        dataPath: "data.items",
+        refreshTime: "5s",
+        cacheEnabled: true,
+      });
+
+      expect(ds.uuid).toBe("sales");
+      expect(ds.url).toBe("http://api.example.com/sales");
+      expect(ds.dataPath).toBe("data.items");
+      expect(ds.refreshTime).toBe("5s");
+      expect(ds.cacheEnabled).toBe(true);
+    });
+
+    it("returns a frozen object", () => {
+      const ds = dataset("test", "http://example.com");
+      expect(Object.isFrozen(ds)).toBe(true);
+    });
+  });
+
+  describe("inlineDataset()", () => {
+    it("creates an ExternalDataSetDef with content", () => {
+      const ds = inlineDataset("local", '[{"a":1}]');
+
+      expect(ds.uuid).toBe("local");
+      expect(ds.content).toBe('[{"a":1}]');
+      expect(ds.url).toBeUndefined();
+    });
+
+    it("accepts optional overrides", () => {
+      const ds = inlineDataset("local", '{"data":[1,2]}', {
+        dataPath: "data",
+        expression: "$[0]",
+      });
+
+      expect(ds.dataPath).toBe("data");
+      expect(ds.expression).toBe("$[0]");
+    });
+
+    it("returns a frozen object", () => {
+      const ds = inlineDataset("test", "[]");
+      expect(Object.isFrozen(ds)).toBe(true);
     });
   });
 

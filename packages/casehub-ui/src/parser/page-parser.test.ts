@@ -405,6 +405,63 @@ describe("parsePage", () => {
       expect(tabsItem!.component.slots!["SubPage2"]).toBeDefined();
     });
 
+    it("preserves grid item placement when slot-targets are interspersed", () => {
+      // Regression test: slot-targets between regular components must not
+      // cause placement misalignment after nav resolution
+      const root = parsePage({
+        pages: [
+          {
+            name: "Main",
+            rows: [
+              {
+                columns: [
+                  { span: 4, components: [{ html: "sidebar" }] },
+                  {
+                    span: 8,
+                    components: [
+                      { type: "TABS", properties: { navGroupId: "G1" } },
+                    ],
+                  },
+                ],
+              },
+              {
+                columns: [
+                  { span: 4, components: [{ div: "d1" }] },
+                  { span: 8, components: [{ html: "footer" }] },
+                ],
+              },
+            ],
+          },
+          { name: "P1", components: [{ html: "content1" }] },
+        ],
+        navTree: {
+          root_items: [{ type: "GROUP", id: "G1", children: [{ page: "P1" }] }],
+        },
+      });
+      const mainPage = root.slots!["content"]![0]!;
+      // sidebar (x:0) should keep its placement
+      const sidebarItem = mainPage.items!.find((item) =>
+        item.component.type === "html" && item.component.props?.["content"] === "sidebar"
+      );
+      expect(sidebarItem).toBeDefined();
+      expect(sidebarItem!.placement.x).toBe(0);
+      expect(sidebarItem!.placement.w).toBe(4);
+
+      // footer (x:4, y:1) should keep its placement — not shifted by slot-target removal
+      const footerItem = mainPage.items!.find((item) =>
+        item.component.type === "html" && item.component.props?.["content"] === "footer"
+      );
+      expect(footerItem).toBeDefined();
+      expect(footerItem!.placement.x).toBe(4);
+      expect(footerItem!.placement.w).toBe(8);
+
+      // tabs should be present with slots
+      const tabsItem = mainPage.items!.find((item) => item.component.type === "tabs");
+      expect(tabsItem).toBeDefined();
+      expect(tabsItem!.placement.x).toBe(4);
+      expect(tabsItem!.placement.w).toBe(8);
+    });
+
     it("removes slot-target components from grid items during resolution", () => {
       const root = parsePage({
         pages: [
