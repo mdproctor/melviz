@@ -230,7 +230,7 @@ describe("builders", () => {
       { name: "menu", builder: menu, expectedType: "menu" },
       { name: "accordion", builder: accordion, expectedType: "accordion" },
       { name: "carousel", builder: carousel, expectedType: "carousel" },
-      { name: "appGrid", builder: appGrid, expectedType: "appGrid" },
+      { name: "appGrid", builder: appGrid, expectedType: "app-grid" },
     ];
 
     testCases.forEach(({ name, builder, expectedType }) => {

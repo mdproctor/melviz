@@ -221,7 +221,7 @@ export function carousel(...entries: [string, ...Component[]][]): Component {
 }
 
 export function appGrid(...entries: [string, ...Component[]][]): Component {
-  return navComponent("appGrid", entries);
+  return navComponent("app-grid", entries);
 }
 
 export function panel(title: string, ...children: Component[]): Component {

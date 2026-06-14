@@ -228,7 +228,7 @@ export function distinct(source: string): ResultColumn {
   });
 }
 
-export function join(source: string, separator: string = ","): ResultColumn {
+export function join(source: string, separator: string = ", "): ResultColumn {
   const fn: Aggregation = Object.freeze({ fn: "JOIN" as const, separator });
   return Object.freeze({
     kind: "aggregate" as const,

@@ -183,7 +183,7 @@ describe("result column helpers", () => {
 
   it("join() with default separator", () => {
     const c = join("names");
-    expect((c as any).fn).toEqual({ fn: "JOIN", separator: "," });
+    expect((c as any).fn).toEqual({ fn: "JOIN", separator: ", " });
   });
 
   it("join() with custom separator", () => {
