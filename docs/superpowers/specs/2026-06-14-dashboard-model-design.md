@@ -792,14 +792,24 @@ Not all state belongs in a URL. The URL encodes **navigation intent** — what t
 | Active filter selections | Expanded tree nodes (personal preference) |
 | Drill-down position | Collapsed panels (personal preference) |
 | Sort column + direction | Scroll positions (ephemeral) |
+| Page parameters (data keys, actions) | |
 
 ```
 #/page/Overview/Sales?filter=region:North,year:2024&drill=product:Widget&sort=revenue:DESC
 ```
 
+**Data-keyed pages:** URL parameters override page properties via `${param}` substitution. This is the primary mechanism for email-driven workflows — an email links to a specific page keyed to specific data:
+
+```
+#/page/CaseReview?caseId=12345&action=approve&status=pending
+```
+
+The page uses `${caseId}` in dataset URLs, filter expressions, and conditional rendering. The URL carries the full intent — which page, which record, what action.
+
 ```typescript
 interface DeepLink {
   readonly page: string;
+  readonly parameters?: Readonly<Record<string, string>>;
   readonly filters?: Readonly<Record<string, readonly string[]>>;
   readonly drillDown?: readonly DrillDownStep[];
   readonly sort?: { readonly column: string; readonly order: "ASC" | "DESC" };
@@ -812,6 +822,39 @@ function parseFromUrl(hash: string): DeepLink;
 **URL is authoritative when present.** Opening a link overrides localStorage for current page and filters. Local-only state (layout, expanded nodes) is preserved from storage — the link controls navigation, not preferences.
 
 **Generating shareable links:** A "share" action serializes the current navigation state to a URL. The recipient lands at the same page with the same filters and drill-down, but their own layout preferences.
+
+### Tiny URLs (optional cache layer)
+
+The full-state URL is always the canonical form — self-contained, works without a server. For email workflows where URL length or readability matters, an optional URL shortening cache maps a short token to the full URL:
+
+```
+Full URL (canonical, always works):
+https://app.example.com/#/page/CaseReview?caseId=12345&action=approve&filter=status:pending
+
+Tiny URL (optional, redirects to full URL):
+https://app.example.com/v/abc123
+```
+
+The tiny URL service is a key→URL mapping with optional expiry and access checks. It stores the full URL, not a separate state object — no special model needed. On resolution, it 302-redirects to the full URL. The full URL remains the source of truth.
+
+```typescript
+// Server-side API (@casehub/data-relay or @casehub/data-jvm)
+interface TinyUrlService {
+  create(fullUrl: string, options?: {
+    expiry?: Date;
+    access?: AccessControl;
+  }): Promise<string>;  // returns token
+
+  resolve(token: string): Promise<string | null>;
+  // Returns full URL, or null if expired / access denied
+}
+```
+
+Benefits for email workflows:
+- Short URLs (~60 chars) survive all email clients
+- Expiry for time-sensitive links (approval requests)
+- Access checks before redirect (server validates user before revealing the full URL)
+- Click-through tracking (optional)
 
 ---
 
