@@ -23,7 +23,7 @@
   "scripts": {
     "build:prod": "yarn build:packages && yarn build:core:prod && yarn build:components && yarn build:webapp && yarn build:examples",
     "build": "yarn build:packages && yarn build:core && yarn build:components && yarn build:webapp",
-    "build:packages": "yarn workspace @melviz/component-api run build && yarn workspace @melviz/component-echarts-base run build && yarn workspace @melviz/component-dev run build",
+    "build:packages": "yarn workspace @melviz/component-api run build && yarn workspace @melviz/component-echarts-base run build && yarn workspace @melviz/component-dev run build && yarn workspace @casehub/data run build && yarn workspace @casehub/ui run build && yarn workspace @casehub/viz run build",
     "build:core": "cd core && mvn clean install -DskipTests -Psources",
     "build:core:prod": "cd core && mvn clean install -Dfull",
     "build:components": "yarn workspaces foreach -Apt --include '@melviz/component-*' --exclude '@melviz/component-api' --exclude '@melviz/component-dev' --exclude '@melviz/component-echarts-base' run build",
