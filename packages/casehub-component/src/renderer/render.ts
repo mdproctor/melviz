@@ -10,6 +10,7 @@ import { wireInteractivity } from "./interactive.js";
 export interface RenderOptions {
   readonly permissions?: PermissionContext;
   readonly document?: Document;
+  readonly onNode?: (el: HTMLElement, component: Component) => void;
 }
 
 export function renderComponent(
@@ -19,8 +20,9 @@ export function renderComponent(
 ): void {
   const doc = options?.document ?? globalThis.document;
   const permissions = options?.permissions ?? ALLOW_ALL;
+  const onNode = options?.onNode;
   target.innerHTML = "";
-  renderNode(target, component, undefined, undefined, undefined, permissions, doc);
+  renderNode(target, component, undefined, undefined, undefined, permissions, doc, onNode);
 }
 
 function renderNode(
@@ -31,6 +33,7 @@ function renderNode(
   indexOrY: number | undefined,
   permissions: PermissionContext,
   doc: Document,
+  onNode: ((el: HTMLElement, component: Component) => void) | undefined,
 ): void {
   // 1. Access control — skip if denied
   if (!checkAccess(component.access, permissions)) return;
@@ -69,10 +72,13 @@ function renderNode(
 
   parent.appendChild(el);
 
+  // onNode fires after appendChild, before children
+  onNode?.(el, component);
+
   // 6. Render children — items take precedence over slots
   if (component.items && component.items.length > 0) {
     for (const item of component.items) {
-      renderNode(el, item.component, id, item.placement.x, item.placement.y, permissions, doc);
+      renderNode(el, item.component, id, item.placement.x, item.placement.y, permissions, doc, onNode);
       const child = el.lastElementChild as HTMLElement;
       if (child) {
         applyGridPlacement(child, item.placement);
@@ -90,7 +96,7 @@ function renderNode(
 
       const children = getSlotChildren(component, slotName);
       for (let i = 0; i < children.length; i++) {
-        renderNode(slotContainer, children[i]!, id, slotName, i, permissions, doc);
+        renderNode(slotContainer, children[i]!, id, slotName, i, permissions, doc, onNode);
       }
     }
 

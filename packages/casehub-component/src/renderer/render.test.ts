@@ -274,3 +274,59 @@ describe("renderComponent — items vs slots precedence", () => {
     expect(gridEl.querySelector("[data-slot]")).toBeNull();
   });
 });
+
+describe("renderComponent — onNode callback", () => {
+  it("fires onNode for each component with element and component model", () => {
+    const target = document.createElement("div");
+    const calls: Array<{ type: string; id: string }> = [];
+    const component: Component = {
+      type: "rows",
+      slots: {
+        default: [
+          { type: "bar-chart", props: { title: "Revenue" } },
+          { type: "table", props: { title: "Sales" } },
+        ],
+      },
+    };
+    renderComponent(target, component, {
+      onNode: (el, comp) => {
+        calls.push({ type: comp.type, id: el.dataset.componentId! });
+      },
+    });
+    expect(calls).toHaveLength(3); // rows + bar-chart + table
+    expect(calls[0]!.type).toBe("rows");
+    expect(calls[1]!.type).toBe("bar-chart");
+    expect(calls[2]!.type).toBe("table");
+  });
+
+  it("element is connected to DOM when onNode fires", () => {
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    let connected = false;
+    const component: Component = { type: "bar-chart" };
+    renderComponent(target, component, {
+      onNode: (el) => {
+        connected = el.isConnected;
+      },
+    });
+    expect(connected).toBe(true);
+    document.body.removeChild(target);
+  });
+
+  it("children not yet rendered when onNode fires for parent", () => {
+    const target = document.createElement("div");
+    let childCount = -1;
+    const component: Component = {
+      type: "tabs",
+      slots: { A: [{ type: "bar-chart" }], B: [{ type: "table" }] },
+    };
+    renderComponent(target, component, {
+      onNode: (el, comp) => {
+        if (comp.type === "tabs") {
+          childCount = el.children.length;
+        }
+      },
+    });
+    expect(childCount).toBe(0);
+  });
+});

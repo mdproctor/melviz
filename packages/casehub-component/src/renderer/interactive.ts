@@ -10,6 +10,9 @@ export function wireInteractivity(
     case "pills":
       wireTabs(container, type, slotNames, panels, doc);
       break;
+    case "sidebar":
+      wireSidebar(container, slotNames, panels, doc);
+      break;
     case "accordion":
       wireAccordion(container, slotNames, panels, doc);
       break;
@@ -20,6 +23,19 @@ export function wireInteractivity(
       applyOneVisible(slotNames, panels, 0);
       break;
   }
+}
+
+function dispatchSlotChange(container: HTMLElement, slotName: string): void {
+  container.dispatchEvent(
+    new CustomEvent("casehub-slot-change", {
+      bubbles: true,
+      composed: true,
+      detail: {
+        activeSlot: slotName,
+        containerId: container.dataset.componentId,
+      },
+    }),
+  );
 }
 
 function applyOneVisible(
@@ -67,6 +83,44 @@ function wireTabs(
             panel.style.display = name === slotName ? "" : "none";
           }
         });
+        dispatchSlotChange(container, slotName);
+      }
+    }
+  });
+}
+
+function wireSidebar(
+  container: HTMLElement,
+  slotNames: readonly string[],
+  panels: Map<string, HTMLElement>,
+  doc: Document,
+): void {
+  const bar = doc.createElement("div");
+  bar.dataset.tabBar = "";
+  bar.className = "casehub-sidebar";
+
+  slotNames.forEach((name) => {
+    const button = doc.createElement("button");
+    button.dataset.slot = name;
+    button.textContent = name;
+    bar.appendChild(button);
+  });
+
+  container.insertBefore(bar, container.firstChild);
+  applyOneVisible(slotNames, panels, 0);
+
+  bar.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "BUTTON") {
+      const slotName = target.dataset.slot;
+      if (slotName) {
+        slotNames.forEach((name) => {
+          const panel = panels.get(name);
+          if (panel) {
+            panel.style.display = name === slotName ? "" : "none";
+          }
+        });
+        dispatchSlotChange(container, slotName);
       }
     }
   });
@@ -87,7 +141,11 @@ function wireAccordion(
       container.insertBefore(header, panel);
 
       header.addEventListener("click", () => {
-        panel.style.display = panel.style.display === "none" ? "" : "none";
+        const wasHidden = panel.style.display === "none";
+        panel.style.display = wasHidden ? "" : "none";
+        if (wasHidden) {
+          dispatchSlotChange(container, name);
+        }
       });
     }
   });
@@ -119,10 +177,12 @@ function wireCarousel(
   prevButton.addEventListener("click", () => {
     currentIndex = (currentIndex - 1 + slotNames.length) % slotNames.length;
     applyOneVisible(slotNames, panels, currentIndex);
+    dispatchSlotChange(container, slotNames[currentIndex]!);
   });
 
   nextButton.addEventListener("click", () => {
     currentIndex = (currentIndex + 1) % slotNames.length;
     applyOneVisible(slotNames, panels, currentIndex);
+    dispatchSlotChange(container, slotNames[currentIndex]!);
   });
 }
