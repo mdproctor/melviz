@@ -1,10 +1,5 @@
 import type { Component, GridPlacement } from "./types.js";
-import type { FilterSettings, RefreshSettings } from "./component-props.js";
-import type {
-  DataSetId,
-  ColumnId,
-  ColumnType,
-} from "@casehub/data/dist/dataset/types.js";
+import type { DataSetId } from "@casehub/data/dist/dataset/types.js";
 import type { DataSetLookup } from "@casehub/data/dist/dataset/lookup.js";
 import type { DataSetOp } from "@casehub/data/dist/dataset/ops.js";
 import type {

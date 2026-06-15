@@ -1579,7 +1579,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@casehub/component@workspace:packages/casehub-component":
+"@casehub/component@workspace:*, @casehub/component@workspace:packages/casehub-component":
   version: 0.0.0-use.local
   resolution: "@casehub/component@workspace:packages/casehub-component"
   dependencies:
@@ -1608,6 +1608,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@casehub/ui@workspace:packages/casehub-ui"
   dependencies:
+    "@casehub/component": "workspace:*"
     "@casehub/data": "workspace:*"
     "@types/js-yaml": "npm:^4.0.9"
     glob: "npm:^11.0.0"

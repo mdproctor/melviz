@@ -12,6 +12,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
+    "@casehub/component": "workspace:*",
     "@casehub/data": "workspace:*",
     "zod": "^3.23.0"
   },
