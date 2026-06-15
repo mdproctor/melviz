@@ -200,7 +200,7 @@ describe("builders", () => {
       const result = rows(child1, child2);
 
       expect(result.type).toBe("rows");
-      expect(result.slots).toEqual({ content: [child1, child2] });
+      expect(result.slots).toEqual({ default: [child1, child2] });
     });
 
     it("freezes returned component", () => {
@@ -210,12 +210,12 @@ describe("builders", () => {
   });
 
   describe("stack()", () => {
-    it("is an alias for rows", () => {
+    it("creates a stack component with children in slots.default", () => {
       const child = html("test");
       const result = stack(child);
 
-      expect(result.type).toBe("rows");
-      expect(result.slots).toEqual({ content: [child] });
+      expect(result.type).toBe("stack");
+      expect(result.slots).toEqual({ default: [child] });
     });
   });
 
@@ -271,7 +271,7 @@ describe("builders", () => {
 
       expect(result.type).toBe("panel");
       expect(result.props).toEqual({ title: "My Panel" });
-      expect(result.slots).toEqual({ content: [child1, child2] });
+      expect(result.slots).toEqual({ default: [child1, child2] });
     });
 
     it("freezes returned component", () => {

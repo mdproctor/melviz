@@ -172,13 +172,15 @@ export function columns(
 export function rows(...children: Component[]): Component {
   return freeze({
     type: "rows",
-    slots: { content: children },
+    slots: { default: children },
   });
 }
 
 export function stack(...children: Component[]): Component {
-  // Alias for rows
-  return rows(...children);
+  return freeze({
+    type: "stack",
+    slots: { default: children },
+  });
 }
 
 // Helper for navigation components
@@ -235,7 +237,7 @@ export function panel(title: string, ...children: Component[]): Component {
   return freeze({
     type: "panel",
     props: props as unknown as Record<string, unknown>,
-    slots: { content: children },
+    slots: { default: children },
   });
 }
 
