@@ -216,7 +216,7 @@ The renderer handles these structural component types. All other types are treat
 | Type | CSS Strategy | Children Source |
 |------|-------------|-----------------|
 | `grid` | `display: grid; grid-template-columns: repeat(N, 1fr)` | `items` array — each `GridItem` placed via `grid-column: (x+1) / span w; grid-row: (y+1) / span h` |
-| `columns` | `display: grid; grid-template-columns: <distribution>fr` | `slots.default` — one child per column |
+| `columns` | `display: grid; grid-template-columns: <distribution>fr` | `slots["col-0"]`, `slots["col-1"]`, ... — one slot per column, named positionally |
 | `rows` | `display: flex; flex-direction: column` | `slots.default` |
 | `stack` | plain container | `slots.default` — first child `display: block`, rest `display: none`. No grid needed — visibility toggling only. |
 | `tabs` | stack + tab bar | See §4.5 Interactive Layout Types |
@@ -431,7 +431,44 @@ Vitest with jsdom environment for renderer tests. Type-only tests (model, type g
 
 ---
 
-## 7. Cleanup During Extraction
+## 7. DSL Fixes Required
+
+The renderer depends on `Component.type` and slot names matching the layout table (§4.4). Two fixes are needed in `@casehub/ui`'s DSL builders:
+
+### 7.1 Slot name normalisation — `content` → `default`
+
+The DSL currently uses `slots.content` for `rows()`, `stack()`, and `panel()`. The renderer expects `slots.default` — the Web Components convention for the unnamed default slot. Rename in the DSL:
+
+| Builder | Current | After |
+|---------|---------|-------|
+| `rows()` | `{ type: "rows", slots: { content: children } }` | `{ type: "rows", slots: { default: children } }` |
+| `stack()` | delegates to `rows()` → `{ type: "rows", slots: { content: ... } }` | see §7.2 |
+| `panel()` | `{ type: "panel", slots: { content: children } }` | `{ type: "panel", slots: { default: children } }` |
+
+`columns()` is correct — it uses `slots["col-0"]`, `slots["col-1"]`, etc. (positionally named, no rename needed).
+
+### 7.2 stack() must produce type: "stack"
+
+`stack()` currently aliases `rows()`, returning `{ type: "rows" }`. The renderer treats `rows` and `stack` as distinct layout types with different CSS strategies (`rows` = flex column with all children visible; `stack` = plain container with display toggling). `stack()` must return its own type:
+
+```typescript
+export function stack(...children: Component[]): Component {
+  return freeze({
+    type: "stack",
+    slots: { default: children },
+  });
+}
+```
+
+Tabs, pills, accordion, and carousel all build on the stack concept (one-at-a-time visibility). They already produce their own `type` values via `navComponent()` — only the standalone `stack()` builder is broken.
+
+### 7.3 Existing tests
+
+Both fixes are breaking changes to the DSL output shape. Existing tests that assert on `slots.content` or on `stack()` producing `type: "rows"` must be updated. These are mechanical — search for `slots.content` and `type: "rows"` in test assertions.
+
+---
+
+## 8. Cleanup During Extraction
 
 ### Dead imports in `page-types.ts`
 
@@ -439,7 +476,7 @@ Vitest with jsdom environment for renderer tests. Type-only tests (model, type g
 
 ---
 
-## 8. Test Strategy
+## 9. Test Strategy
 
 ### Model tests (moved from `@casehub/ui`)
 
@@ -502,6 +539,13 @@ Existing tests for `types.ts` and `component-props.ts` move to `@casehub/compone
 - `tree` and `menu` treated as unknown types (activation containers)
 - `html`, `markdown`, `title` treated as unknown types
 - `page` treated as unknown type but slot children still render recursively
+
+**DSL slot name consistency:**
+- `rows()` produces `slots.default` (not `slots.content`)
+- `stack()` produces `type: "stack"` with `slots.default` (not `type: "rows"`)
+- `panel()` produces `slots.default` (not `slots.content`)
+- `columns()` produces `slots["col-0"]`, `slots["col-1"]`, etc.
+- Renderer correctly reads children from these slot names
 
 **DOM attributes on layout types:**
 - Layout types carry `data-component-type`, `data-component-id`, `data-component-props` (same as unknown types)
