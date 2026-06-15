@@ -6,8 +6,10 @@ Covers issue #12. Extracts zero-dependency component primitives from `@casehub/u
 - **`FilterSettings`, `DrillDown`, `RefreshSettings` go into `@casehub/component`** — they are zero-dep behavioural primitives (refresh polling, cross-component filtering, drill-down navigation) useful to all consumers, not just data visualization.
 - **Split `ComponentTypeRegistry`** — `@casehub/component` defines the base registry with layout/content entries. `@casehub/ui` extends it with data-dep chart/displayer entries. Each package's type guards are self-consistent.
 - **`html`, `markdown`, `title` treated as unknown types** — the layout renderer creates empty containers for them, same as charts. No DOMPurify or markdown parser dependency. Content activation is the site runtime's job.
-- **Props serialised as `data-component-props` JSON on DOM elements** — self-describing activation. Activators don't need a reference to the original `Component` tree.
+- **`tree` and `menu` treated as unknown types** — their visual rendering (nested expand/collapse, dropdowns, hover states, keyboard navigation) is too complex for the renderer. They stay in `ComponentTypeRegistry` as valid component types but the renderer creates empty activation containers for them. The site runtime instantiates `<casehub-tree>` or `<casehub-menu>` Web Components.
+- **Props serialised as `data-component-props` JSON on all DOM elements** — universal, including layout types. Self-describing activation. The DnD editor will need to read layout props from the DOM to populate settings panels.
 - **`@casehub/ui` re-exports everything from `@casehub/component`** — zero migration for existing consumers. Import paths that point at `@casehub/ui` continue to work unchanged.
+- **Interactive layout types (tabs, pills, accordion, carousel) handled by the renderer** — visibility toggling (`display: none`/`display: block`) is layout behaviour, not data or activation behaviour. Event delegation on layout containers; listeners die when target is cleared on re-render.
 
 ---
 
@@ -35,7 +37,7 @@ Covers issue #12. Extracts zero-dependency component primitives from `@casehub/u
 │   ├── types.ts                      re-exports from @casehub/component
 │   ├── component-props.ts            re-exports from @casehub/component
 │   ├── displayer-types.ts            unchanged (DataComponentCommon, ChartSettings, *Props)
-│   ├── page-types.ts                 unchanged (PageProps, Site, ViewState, etc.)
+│   ├── page-types.ts                 unchanged (PageProps, Site, ViewState, etc.); dead imports cleaned up
 │   ├── type-guards.ts                extends ComponentTypeRegistry, adds chart/data guards
 │   └── index.ts                      re-exports everything (component + data types)
 ├── dsl/                              unchanged
@@ -80,7 +82,7 @@ Covers issue #12. Extracts zero-dependency component primitives from `@casehub/u
 
 **`displayer-types.ts`** — `DataComponentCommon`, `ChartSettings`, `BarChartProps`, `LineChartProps`, `AreaChartProps`, `PieChartProps`, `ScatterChartProps`, `BubbleChartProps`, `TimeseriesProps`, `TableProps`, `MetricProps`, `MeterProps`, `SelectorProps`, `MapProps`, `IframePluginProps`. All import from `@casehub/data`.
 
-**`page-types.ts`** — `PageProps`, `PageSettings`, `DataComponentDefaults`, `LookupDefaults`, `DataSetDefaults`, `ViewState`, `DrillDownStep`, `LayoutOverride`, `DeepLink`, `Site`. All import from `@casehub/data`.
+**`page-types.ts`** — `PageProps`, `PageSettings`, `DataComponentDefaults`, `LookupDefaults`, `DataSetDefaults`, `ViewState`, `DrillDownStep`, `LayoutOverride`, `DeepLink`, `Site`. All import from `@casehub/data`. Dead imports of `FilterSettings`, `RefreshSettings`, `ColumnId`, and `ColumnType` are cleaned up during extraction.
 
 **DSL builders** — import from both `@casehub/component` (via `@casehub/ui` re-exports) and `@casehub/data`.
 
@@ -128,6 +130,7 @@ export function isColumns(c: Component): c is Component & { props: ColumnsProps 
 
 ```typescript
 import type { ComponentTypeRegistry as BaseRegistry } from "@casehub/component";
+import { getProps as baseGetProps } from "@casehub/component";
 
 export interface ComponentTypeRegistry extends BaseRegistry {
   page: PageProps;
@@ -146,17 +149,21 @@ export interface ComponentTypeRegistry extends BaseRegistry {
   "iframe-plugin": IframePluginProps;
 }
 
-// Re-exports base getProps with extended registry
-export function getProps<T extends keyof ComponentTypeRegistry>(
+// Re-export with widened generic constraint via type assertion.
+// Single implementation in @casehub/component; the cast widens
+// the key constraint to include chart/data types.
+export const getProps = baseGetProps as <T extends keyof ComponentTypeRegistry>(
   component: Component,
   type: T,
-): ComponentTypeRegistry[T];
+) => ComponentTypeRegistry[T];
 
 // Chart/data type guards
 export function isPage(c: Component): c is Component & { props: PageProps };
 export function isBarChart(c: Component): c is Component & { props: BarChartProps };
 // ... etc for all data-dep types
 ```
+
+The type assertion approach preserves the single `getProps` implementation in `@casehub/component` while widening the generic constraint at the `@casehub/ui` level. TypeScript cannot retroactively extend a re-exported function's generic constraint; the cast is the correct mechanism.
 
 ---
 
@@ -181,33 +188,96 @@ function renderComponent(
 
 `options.document` defaults to `globalThis.document`. Pass a jsdom `Document` for testing.
 
+### DOM Attributes
+
+Every component — layout types and unknown types alike — gets all three attributes on its container element:
+
+- `data-component-type` — the component's `type` string
+- `data-component-id` — the component's `id` (deterministic if not provided, see §4.6)
+- `data-component-props` — JSON-serialised props
+
+All props interfaces in the model are pure data (`Readonly<Record<string, unknown>>` with no functions, symbols, or circular references). `JSON.stringify` is safe on all of them. This invariant must hold for any future props interface added to the model.
+
+Universal attributes serve two consumers: the site runtime (activation of unknown types) and the DnD editor (reading layout props to populate settings panels).
+
+### Component.style
+
+The renderer applies `Component.style` as inline CSS on the container element via `element.style.setProperty()`. Author-set style properties override renderer-applied layout defaults when they conflict — for example, an author setting `display` on a grid component overrides the renderer's `display: grid`.
+
+Application order: renderer applies layout CSS first, then iterates `Component.style` entries and applies each via `setProperty()`, overwriting any renderer-set values on the same property.
+
 ### Layout Type Rendering
+
+The renderer handles these structural component types. All other types are treated as unknown (empty activation containers).
 
 | Type | CSS Strategy | Children Source |
 |------|-------------|-----------------|
 | `grid` | `display: grid; grid-template-columns: repeat(N, 1fr)` | `items` array — each `GridItem` placed via `grid-column: (x+1) / span w; grid-row: (y+1) / span h` |
 | `columns` | `display: grid; grid-template-columns: <distribution>fr` | `slots.default` — one child per column |
 | `rows` | `display: flex; flex-direction: column` | `slots.default` |
-| `stack` | `display: grid; grid-template-areas: "main"` | `slots.default` — all layered, first visible |
-| `tabs` / `pills` | stack + tab/pill bar | `slots.default` — tab bar from child names/titles, first active |
+| `stack` | `display: grid; grid-template-areas: "main"` | `slots.default` — all layered, first child visible via `display`, rest `display: none` |
+| `tabs` | stack + tab bar | See §4.5 Interactive Layout Types |
+| `pills` | stack + pill bar | See §4.5 Interactive Layout Types |
+| `accordion` | vertical stack with disclosure toggles | See §4.5 Interactive Layout Types |
+| `carousel` | stack + prev/next controls | See §4.5 Interactive Layout Types |
 | `sidebar` | `display: grid; grid-template-columns: auto 1fr` | `slots.nav` + `slots.main` |
 | `panel` | container with title header | `PanelProps.title` as header, `slots.default` for content |
-| `accordion` | vertical stack with disclosure toggles | `slots.default` — each child collapsible, all expanded by default |
-| `carousel` | stack + prev/next controls | `slots.default` — first child visible |
 | `app-grid` | `display: grid; grid-template-areas` | Semantic slots: `slots.header`, `slots.nav`, `slots.main`, `slots.footer` |
 
-### Unknown Type Rendering
+**Types NOT rendered by the layout renderer** (treated as unknown — empty activation containers):
 
-Any `type` not in the layout table above gets an empty container:
+| Type | Reason |
+|------|--------|
+| `tree` | Complex interactive rendering — nested expand/collapse, keyboard navigation. Site runtime activates a `<casehub-tree>` Web Component. |
+| `menu` | Complex interactive rendering — dropdowns, hover states, keyboard navigation. Site runtime activates a `<casehub-menu>` Web Component. |
+| `html` | Content rendering — requires DOMPurify for XSS safety. Site runtime activates. |
+| `markdown` | Content rendering — requires a markdown parser. Site runtime activates. |
+| `title` | Content rendering — trivial, but for consistency all content types are activation targets. |
+| `lazy-page` | Requires async fetch. Site runtime resolves and replaces. |
+| `page` | Not a layout type. The renderer creates an activation container but still renders the page's slot children recursively (see §4.7). |
+| All chart/data types | Site runtime creates Web Components and wires data. |
 
-```html
-<div data-component-type="bar-chart"
-     data-component-id="chart-1"
-     data-component-props='{"subtype":"column","lookup":{...}}'>
-</div>
-```
+### Interactive Layout Types
 
-The site runtime finds these containers and activates them — creating Web Components, rendering content, wiring data.
+Tabs, pills, accordion, and carousel require interactivity to determine which child is visible. This is layout behaviour — visibility toggling — not data binding or site-runtime concern. The renderer owns it.
+
+**Tabs / Pills:**
+- Renderer creates a tab/pill bar from slot names (the keys of `slots`). Each tab is a `<button>` inside a bar container.
+- One child container per slot, all rendered. First child `display: block`; rest `display: none`.
+- Event delegation on the tab bar container: click handler reads the slot name from the clicked button's `data-slot` attribute, hides all children, shows the target.
+- Tab bar styling differs between tabs (underline/border) and pills (chip/badge) via CSS classes.
+
+**Accordion:**
+- Each child in `slots.default` gets a disclosure header (`<button>`) and a content container.
+- All sections expanded by default (`display: block`).
+- Click handler on each header toggles `display: none`/`display: block` on its content container.
+
+**Carousel:**
+- All children rendered. First child `display: block`; rest `display: none`.
+- Renderer creates prev/next `<button>` controls.
+- Click handlers cycle through children by index, toggling `display`.
+
+**Listener lifecycle:** Event listeners attach to the structural DOM elements the renderer creates. When `renderComponent()` clears `target` (via `target.innerHTML = ""`), all descendant elements and their listeners are removed. No explicit cleanup needed — the DOM is the lifecycle manager.
+
+### Deterministic ID Generation
+
+When `component.id` is absent, the renderer generates a deterministic ID based on the component's position in the tree:
+
+- **Root component:** `root`
+- **Slot children:** `{parentId}_{slotName}_{index}` — e.g., `root_main_0`, `root_nav_1`
+- **Grid items:** `{parentId}_{x}_{y}` — e.g., `root_0_0`, `root_8_0`
+
+This matches the YAML parser's existing tree-path algorithm (`grid_{pageIndex}_{x}_{y}`) and ensures:
+- IDs are deterministic (same tree → same IDs across re-renders)
+- IDs are unique within the tree
+- DOM queries by the site runtime produce predictable results
+- Tests can assert exact attribute values
+
+Explicit `id` values on a `Component` always override generated ones.
+
+### Page Component Handling
+
+Page components (`type: "page"`) are not layout types — the renderer does not apply layout CSS to them. However, the renderer still renders their slot children recursively. A page's datasets, settings, navigation registration, and URL addressability are all site-runtime concerns. The renderer produces an activation container with `data-component-type="page"` and recurses into the page's `slots` to render its content subtree.
 
 ### Grid Placement Mapping
 
@@ -231,16 +301,19 @@ Before rendering any component, the renderer checks `component.access` against t
 
 When no `PermissionContext` is provided in options, `ALLOW_ALL` is used (everything renders).
 
-### Recursive Composition
+### Recursive Composition Algorithm
 
 The renderer walks the `Component` tree depth-first:
 
-1. Check access control → skip if denied
-2. Create container `<div>` with `data-component-*` attributes
-3. If `type` is a known layout type → apply CSS layout properties
-4. If `items` array exists → render each `GridItem` with placement
-5. If `slots` exist → for each slot, render children recursively into a slot container
-6. If neither items nor slots → container stays empty (leaf component)
+1. **Access control** — check `component.access` against `PermissionContext`. Skip this component and its entire subtree if denied.
+2. **Create container** — `<div>` with `data-component-type`, `data-component-id` (deterministic if absent), `data-component-props` (JSON-serialised).
+3. **Apply layout CSS** — if `type` is a known layout type, apply layout-specific CSS properties (display, grid-template-columns, flex-direction, etc.).
+4. **Apply `Component.style`** — set inline CSS via `element.style.setProperty()` for each entry. Runs after layout CSS so author-set properties override renderer defaults on the same property.
+5. **Render children** — from whichever source exists:
+   - `items` array → render each `GridItem` with CSS Grid placement
+   - `slots` → for each named slot, create a slot container and render children recursively
+   - Neither → container is a leaf (empty, awaiting activation)
+6. **Wire interactivity** — for interactive layout types (tabs, pills, accordion, carousel), attach event delegation listeners.
 
 ---
 
@@ -267,7 +340,7 @@ export {
 } from "@casehub/component";
 ```
 
-**`@casehub/ui/src/model/type-guards.ts`** re-exports base guards from `@casehub/component`, adds chart/data guards, and exports the extended `ComponentTypeRegistry`.
+**`@casehub/ui/src/model/type-guards.ts`** imports `getProps` from `@casehub/component`, re-exports it with a widened type assertion (see §3), re-exports all base guards, and adds chart/data guards with the extended `ComponentTypeRegistry`.
 
 **`@casehub/ui/package.json`** adds `"@casehub/component": "workspace:*"` to dependencies.
 
@@ -339,11 +412,13 @@ Zero runtime dependencies.
 
 ### Build order
 
-`@casehub/component` must build before `@casehub/ui`. The `yarn build:packages` script needs updating to include it in the correct position:
+The full `build:packages` script chain becomes:
 
 ```
-@casehub/component → @casehub/ui → @casehub/viz
+@melviz/component-api → @melviz/component-echarts-base → @melviz/component-dev → @casehub/component → @casehub/data → @casehub/ui → @casehub/viz
 ```
+
+`@casehub/component` and `@casehub/data` have no dependency on each other. The script is sequential; `@casehub/component` before `@casehub/data` keeps the casehub packages in dependency order (`@casehub/ui` depends on both, so both must build before it).
 
 ### Tests
 
@@ -351,7 +426,15 @@ Vitest with jsdom environment for renderer tests. Type-only tests (model, type g
 
 ---
 
-## 7. Test Strategy
+## 7. Cleanup During Extraction
+
+### Dead imports in `page-types.ts`
+
+`page-types.ts` imports `FilterSettings`, `RefreshSettings`, `ColumnId`, and `ColumnType` but uses none of them in any interface. These dead imports are removed during the extraction.
+
+---
+
+## 8. Test Strategy
 
 ### Model tests (moved from `@casehub/ui`)
 
@@ -371,6 +454,19 @@ Existing tests for `types.ts` and `component-props.ts` move to `@casehub/compone
 - `panel` → title header + content area
 - `app-grid` → semantic slot zones
 
+**Component.style:**
+- Style properties applied as inline CSS on container
+- Author `style` overrides renderer layout CSS on the same property
+- Missing style produces no inline CSS
+
+**Interactive layout types:**
+- Tabs — clicking a tab shows the target child, hides others
+- Tabs — first child visible by default
+- Accordion — clicking a header toggles its section
+- Accordion — all sections expanded by default
+- Carousel — prev/next buttons cycle through children
+- Pills — same behaviour as tabs, different CSS class
+
 **Slot composition:**
 - Nested slots render recursively
 - Empty slots produce no output
@@ -382,7 +478,20 @@ Existing tests for `types.ts` and `component-props.ts` move to `@casehub/compone
 - Missing `PermissionContext` defaults to `ALLOW_ALL`
 - Access control on parent skips entire subtree
 
+**Deterministic IDs:**
+- Root component gets `id="root"`
+- Slot child gets `id="{parentId}_{slotName}_{index}"`
+- Grid item gets `id="{parentId}_{x}_{y}"`
+- Explicit `id` overrides generated ID
+- Same tree produces same IDs across re-renders
+
 **Unknown types:**
 - Unknown type produces `<div data-component-type="..." data-component-id="..." data-component-props="...">`
 - Props are valid JSON in the attribute
-- Component ID is auto-generated when not provided
+- `tree` and `menu` treated as unknown types (activation containers)
+- `html`, `markdown`, `title` treated as unknown types
+- `page` treated as unknown type but slot children still render recursively
+
+**DOM attributes on layout types:**
+- Layout types carry `data-component-type`, `data-component-id`, `data-component-props` (same as unknown types)
+- `data-component-props` on a grid contains `{"columns":12}` (verifiable from DOM)
