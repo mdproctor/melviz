@@ -29,3 +29,26 @@ export type {
   DrillDown,
   RefreshSettings,
 } from "./component-props.js";
+
+// Type guards
+export type { ComponentTypeRegistry } from "./type-guards.js";
+export {
+  getProps,
+  isGrid,
+  isColumns,
+  isRows,
+  isStack,
+  isTabs,
+  isPills,
+  isSidebar,
+  isTree,
+  isMenu,
+  isAccordion,
+  isCarousel,
+  isAppGrid,
+  isPanel,
+  isHtml,
+  isMarkdown,
+  isTitle,
+  isLazyPage,
+} from "./type-guards.js";
