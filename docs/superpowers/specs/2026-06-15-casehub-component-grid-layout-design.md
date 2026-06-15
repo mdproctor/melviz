@@ -10,6 +10,9 @@ Covers issue #12. Extracts zero-dependency component primitives from `@casehub/u
 - **Props serialised as `data-component-props` JSON on all DOM elements** — universal, including layout types. Self-describing activation. The DnD editor will need to read layout props from the DOM to populate settings panels.
 - **`@casehub/ui` re-exports everything from `@casehub/component`** — zero migration for existing consumers. Import paths that point at `@casehub/ui` continue to work unchanged.
 - **Interactive layout types (tabs, pills, accordion, carousel) handled by the renderer** — visibility toggling (`display: none`/`display: block`) is layout behaviour, not data or activation behaviour. Event delegation on layout containers; listeners die when target is cleared on re-render.
+- **All navigation components use named slots** — accordion, carousel, tabs, and pills all share the same named-slot contract (dashboard model spec §4 invariant). Slot keys serve as labels (tab names, accordion section headers). Swapping navigation types changes visual treatment without changing slot structure.
+- **stack is a plain container, not a grid** — `display: none`/`display: block` toggling only. No `grid-template-areas` — hidden elements don't participate in grid layout, making the grid declaration pointless.
+- **`::` as ID separator** — avoids collision with underscored slot names. `_` would make `root_a_b_0` ambiguous between slot `a_b` at index 0 and parent `root_a` with slot `b`.
 
 ---
 
@@ -215,7 +218,7 @@ The renderer handles these structural component types. All other types are treat
 | `grid` | `display: grid; grid-template-columns: repeat(N, 1fr)` | `items` array — each `GridItem` placed via `grid-column: (x+1) / span w; grid-row: (y+1) / span h` |
 | `columns` | `display: grid; grid-template-columns: <distribution>fr` | `slots.default` — one child per column |
 | `rows` | `display: flex; flex-direction: column` | `slots.default` |
-| `stack` | `display: grid; grid-template-areas: "main"` | `slots.default` — all layered, first child visible via `display`, rest `display: none` |
+| `stack` | plain container | `slots.default` — first child `display: block`, rest `display: none`. No grid needed — visibility toggling only. |
 | `tabs` | stack + tab bar | See §4.5 Interactive Layout Types |
 | `pills` | stack + pill bar | See §4.5 Interactive Layout Types |
 | `accordion` | vertical stack with disclosure toggles | See §4.5 Interactive Layout Types |
@@ -248,11 +251,13 @@ Tabs, pills, accordion, and carousel require interactivity to determine which ch
 - Tab bar styling differs between tabs (underline/border) and pills (chip/badge) via CSS classes.
 
 **Accordion:**
-- Each child in `slots.default` gets a disclosure header (`<button>`) and a content container.
+- Uses named slots, same contract as tabs/pills. The slot key is the section label — consistent with the dashboard model spec's invariant that all navigation components share the same named-slot contract. Swapping `tabs` for `accordion` changes visual treatment without changing the slot structure.
+- Each named slot becomes a section: disclosure header (`<button>` with slot key as text) followed by the slot's content container.
 - All sections expanded by default (`display: block`).
 - Click handler on each header toggles `display: none`/`display: block` on its content container.
 
 **Carousel:**
+- Uses named slots (same contract as tabs/pills/accordion). Slot keys are available for indicator dots if ever needed, but prev/next buttons don't require them.
 - All children rendered. First child `display: block`; rest `display: none`.
 - Renderer creates prev/next `<button>` controls.
 - Click handlers cycle through children by index, toggling `display`.
@@ -261,15 +266,15 @@ Tabs, pills, accordion, and carousel require interactivity to determine which ch
 
 ### Deterministic ID Generation
 
-When `component.id` is absent, the renderer generates a deterministic ID based on the component's position in the tree:
+When `component.id` is absent, the renderer generates a deterministic ID based on the component's position in the tree. The separator is `::` (not `_`) to avoid ambiguity with underscored slot names — e.g., a slot named `a_b` with `_` as separator would produce the same ID as parent `root_a` with slot `b`.
 
 - **Root component:** `root`
-- **Slot children:** `{parentId}_{slotName}_{index}` — e.g., `root_main_0`, `root_nav_1`
-- **Grid items:** `{parentId}_{x}_{y}` — e.g., `root_0_0`, `root_8_0`
+- **Slot children:** `{parentId}::{slotName}::{index}` — e.g., `root::main::0`, `root::nav::1`
+- **Grid items:** `{parentId}::{x}::{y}` — e.g., `root::0::0`, `root::8::0`
 
-This matches the YAML parser's existing tree-path algorithm (`grid_{pageIndex}_{x}_{y}`) and ensures:
+This ensures:
 - IDs are deterministic (same tree → same IDs across re-renders)
-- IDs are unique within the tree
+- IDs are unique within the tree (no separator collision with slot names)
 - DOM queries by the site runtime produce predictable results
 - Tests can assert exact attribute values
 
@@ -309,7 +314,7 @@ The renderer walks the `Component` tree depth-first:
 2. **Create container** — `<div>` with `data-component-type`, `data-component-id` (deterministic if absent), `data-component-props` (JSON-serialised).
 3. **Apply layout CSS** — if `type` is a known layout type, apply layout-specific CSS properties (display, grid-template-columns, flex-direction, etc.).
 4. **Apply `Component.style`** — set inline CSS via `element.style.setProperty()` for each entry. Runs after layout CSS so author-set properties override renderer defaults on the same property.
-5. **Render children** — from whichever source exists:
+5. **Render children** — from whichever source exists. If both `items` and `slots` are present (the model says they're mutually exclusive, but defensively), `items` takes precedence.
    - `items` array → render each `GridItem` with CSS Grid placement
    - `slots` → for each named slot, create a slot container and render children recursively
    - Neither → container is a leaf (empty, awaiting activation)
@@ -462,10 +467,15 @@ Existing tests for `types.ts` and `component-props.ts` move to `@casehub/compone
 **Interactive layout types:**
 - Tabs — clicking a tab shows the target child, hides others
 - Tabs — first child visible by default
+- Tabs — slot keys used as tab labels
 - Accordion — clicking a header toggles its section
 - Accordion — all sections expanded by default
+- Accordion — slot keys used as section labels (same contract as tabs)
+- Accordion — swapping type from `tabs` to `accordion` on same slots changes visual treatment only
 - Carousel — prev/next buttons cycle through children
+- Carousel — uses named slots (same contract as tabs/accordion)
 - Pills — same behaviour as tabs, different CSS class
+- Stack — first child visible, rest `display: none`, no grid CSS
 
 **Slot composition:**
 - Nested slots render recursively
@@ -480,10 +490,11 @@ Existing tests for `types.ts` and `component-props.ts` move to `@casehub/compone
 
 **Deterministic IDs:**
 - Root component gets `id="root"`
-- Slot child gets `id="{parentId}_{slotName}_{index}"`
-- Grid item gets `id="{parentId}_{x}_{y}"`
+- Slot child gets `id="{parentId}::{slotName}::{index}"` (e.g., `root::main::0`)
+- Grid item gets `id="{parentId}::{x}::{y}"` (e.g., `root::0::0`)
 - Explicit `id` overrides generated ID
 - Same tree produces same IDs across re-renders
+- `::` separator avoids collision with underscored slot names
 
 **Unknown types:**
 - Unknown type produces `<div data-component-type="..." data-component-id="..." data-component-props="...">`
