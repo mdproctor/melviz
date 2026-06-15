@@ -1579,6 +1579,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@casehub/component@workspace:packages/casehub-component":
+  version: 0.0.0-use.local
+  resolution: "@casehub/component@workspace:packages/casehub-component"
+  dependencies:
+    rimraf: "npm:^6.1.0"
+    typescript: "npm:^5.6.0"
+    vitest: "npm:^3.0.0"
+  languageName: unknown
+  linkType: soft
+
 "@casehub/data@workspace:*, @casehub/data@workspace:packages/core":
   version: 0.0.0-use.local
   resolution: "@casehub/data@workspace:packages/core"
@@ -1594,7 +1604,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@casehub/ui@workspace:packages/casehub-ui":
+"@casehub/ui@workspace:*, @casehub/ui@workspace:packages/casehub-ui":
   version: 0.0.0-use.local
   resolution: "@casehub/ui@workspace:packages/casehub-ui"
   dependencies:
@@ -1606,6 +1616,19 @@ __metadata:
     typescript: "npm:^5.6.0"
     vitest: "npm:^3.0.0"
     zod: "npm:^3.23.0"
+  languageName: unknown
+  linkType: soft
+
+"@casehub/viz@workspace:packages/casehub-viz":
+  version: 0.0.0-use.local
+  resolution: "@casehub/viz@workspace:packages/casehub-viz"
+  dependencies:
+    "@casehub/data": "workspace:*"
+    "@casehub/ui": "workspace:*"
+    echarts: "npm:^5.6.0"
+    rimraf: "npm:^6.1.0"
+    typescript: "npm:^5.6.0"
+    vitest: "npm:^3.0.0"
   languageName: unknown
   linkType: soft
 
