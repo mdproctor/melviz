@@ -58,8 +58,8 @@ function renderNode(
 
   // 5. Panel title
   if (component.type === "panel" && component.props) {
-    const title = (component.props as { title?: string }).title;
-    if (title) {
+    const { title } = component.props as Readonly<Record<string, unknown>>;
+    if (typeof title === "string" && title) {
       const titleEl = doc.createElement("div");
       titleEl.dataset.panelTitle = "";
       titleEl.textContent = title;
@@ -79,7 +79,7 @@ function renderNode(
       }
     }
   } else if (component.slots) {
-    const slotNames = getSlotNames(component) as string[];
+    const slotNames = getSlotNames(component);
     const panels = new Map<string, HTMLElement>();
 
     for (const slotName of slotNames) {
@@ -95,6 +95,6 @@ function renderNode(
     }
 
     // 7. Wire interactivity for interactive layout types
-    wireInteractivity(el, component.type, slotNames, panels);
+    wireInteractivity(el, component.type, slotNames, panels, doc);
   }
 }

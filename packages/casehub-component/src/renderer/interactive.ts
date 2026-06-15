@@ -3,17 +3,18 @@ export function wireInteractivity(
   type: string,
   slotNames: readonly string[],
   panels: Map<string, HTMLElement>,
+  doc: Document = globalThis.document,
 ): void {
   switch (type) {
     case "tabs":
     case "pills":
-      wireTabs(container, type, slotNames, panels);
+      wireTabs(container, type, slotNames, panels, doc);
       break;
     case "accordion":
-      wireAccordion(container, slotNames, panels);
+      wireAccordion(container, slotNames, panels, doc);
       break;
     case "carousel":
-      wireCarousel(container, slotNames, panels);
+      wireCarousel(container, slotNames, panels, doc);
       break;
     case "stack":
       applyOneVisible(slotNames, panels, 0);
@@ -39,13 +40,14 @@ function wireTabs(
   type: string,
   slotNames: readonly string[],
   panels: Map<string, HTMLElement>,
+  doc: Document,
 ): void {
-  const bar = document.createElement("div");
+  const bar = doc.createElement("div");
   bar.dataset.tabBar = "";
   bar.className = type === "pills" ? "casehub-pills" : "casehub-tabs";
 
   slotNames.forEach((name) => {
-    const button = document.createElement("button");
+    const button = doc.createElement("button");
     button.dataset.slot = name;
     button.textContent = name;
     bar.appendChild(button);
@@ -74,11 +76,12 @@ function wireAccordion(
   container: HTMLElement,
   slotNames: readonly string[],
   panels: Map<string, HTMLElement>,
+  doc: Document,
 ): void {
   slotNames.forEach((name) => {
     const panel = panels.get(name);
     if (panel) {
-      const header = document.createElement("button");
+      const header = doc.createElement("button");
       header.dataset.accordionHeader = "";
       header.textContent = name;
       container.insertBefore(header, panel);
@@ -94,17 +97,18 @@ function wireCarousel(
   container: HTMLElement,
   slotNames: readonly string[],
   panels: Map<string, HTMLElement>,
+  doc: Document,
 ): void {
   let currentIndex = 0;
 
   applyOneVisible(slotNames, panels, 0);
 
-  const nav = document.createElement("div");
-  const prevButton = document.createElement("button");
+  const nav = doc.createElement("div");
+  const prevButton = doc.createElement("button");
   prevButton.dataset.carouselPrev = "";
   prevButton.textContent = "←";
 
-  const nextButton = document.createElement("button");
+  const nextButton = doc.createElement("button");
   nextButton.dataset.carouselNext = "";
   nextButton.textContent = "→";
 
