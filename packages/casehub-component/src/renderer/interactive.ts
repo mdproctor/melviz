@@ -83,6 +83,13 @@ function wireTabs(
             panel.style.display = name === slotName ? "" : "none";
           }
         });
+        for (const btn of bar.querySelectorAll<HTMLElement>("button[data-slot]")) {
+          if (btn.dataset.slot === slotName) {
+            btn.dataset.active = "";
+          } else {
+            delete btn.dataset.active;
+          }
+        }
         dispatchSlotChange(container, slotName);
       }
     }
@@ -120,6 +127,13 @@ function wireSidebar(
             panel.style.display = name === slotName ? "" : "none";
           }
         });
+        for (const btn of bar.querySelectorAll<HTMLElement>("button[data-slot]")) {
+          if (btn.dataset.slot === slotName) {
+            btn.dataset.active = "";
+          } else {
+            delete btn.dataset.active;
+          }
+        }
         dispatchSlotChange(container, slotName);
       }
     }
