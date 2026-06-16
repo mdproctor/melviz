@@ -13,11 +13,37 @@ describe("deepMerge", () => {
     )).toEqual({ xAxis: { type: "category", name: "Revenue" } });
   });
 
-  it("replaces arrays entirely", () => {
+  it("merges arrays element-by-element (objects merged, primitives replaced)", () => {
+    expect(deepMerge(
+      { series: [{ type: "bar", encode: { x: 0 } }, { type: "line", encode: { x: 0 } }] },
+      { series: [{ itemStyle: { decal: "rect" } }, { itemStyle: { decal: "pin" } }] },
+    )).toEqual({
+      series: [
+        { type: "bar", encode: { x: 0 }, itemStyle: { decal: "rect" } },
+        { type: "line", encode: { x: 0 }, itemStyle: { decal: "pin" } },
+      ],
+    });
+  });
+
+  it("appends extra override array elements beyond base length", () => {
+    expect(deepMerge(
+      { series: [{ type: "bar" }] },
+      { series: [{ color: "red" }, { type: "line" }] },
+    )).toEqual({ series: [{ type: "bar", color: "red" }, { type: "line" }] });
+  });
+
+  it("preserves base array elements when override is shorter", () => {
     expect(deepMerge(
       { series: [{ type: "bar" }, { type: "line" }] },
-      { series: [{ type: "scatter" }] },
-    )).toEqual({ series: [{ type: "scatter" }] });
+      { series: [{ color: "red" }] },
+    )).toEqual({ series: [{ type: "bar", color: "red" }, { type: "line" }] });
+  });
+
+  it("replaces primitive array elements", () => {
+    expect(deepMerge(
+      { color: ["blue", "green"] },
+      { color: ["red", "yellow", "purple"] },
+    )).toEqual({ color: ["red", "yellow", "purple"] });
   });
 
   it("replaces primitives", () => {
