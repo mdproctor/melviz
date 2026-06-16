@@ -139,6 +139,17 @@ export function desugarDisplayer(raw: Record<string, unknown>): Component {
     }
   }
 
+  // Extract grid visibility (chart.grid.x/y controls splitLine show)
+  const gridSource = (raw.chart && typeof raw.chart === "object")
+    ? (raw.chart as Record<string, unknown>).grid as Record<string, unknown> | undefined
+    : undefined;
+  if (gridSource && typeof gridSource === "object") {
+    const grid: Record<string, unknown> = {};
+    if (gridSource.x != null) grid.x = gridSource.x;
+    if (gridSource.y != null) grid.y = gridSource.y;
+    if (Object.keys(grid).length > 0) props.grid = grid;
+  }
+
   // Extract external settings (for iframe-plugin)
   if (raw.external && typeof raw.external === "object") {
     const external = raw.external as Record<string, unknown>;

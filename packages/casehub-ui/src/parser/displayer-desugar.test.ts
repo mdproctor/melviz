@@ -345,4 +345,22 @@ describe("desugarDisplayer", () => {
     expect((result.props as any).xAxis).toEqual({ labelAngle: 30, title: "X" });
     expect((result.props as any).yAxis).toEqual({ title: "Y", showLabels: false });
   });
+
+  it("extracts chart.grid visibility settings", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      chart: { grid: { x: false, y: false } },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).grid).toEqual({ x: false, y: false });
+  });
+
+  it("extracts chart.grid with only x", () => {
+    const result = desugarDisplayer({
+      type: "LINECHART",
+      chart: { grid: { x: false } },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).grid).toEqual({ x: false });
+  });
 });

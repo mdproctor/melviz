@@ -33,6 +33,7 @@ export interface ChartSettings {
   };
   readonly xAxis?: { readonly title?: string; readonly showLabels?: boolean; readonly labelAngle?: number };
   readonly yAxis?: { readonly title?: string; readonly showLabels?: boolean; readonly labelAngle?: number };
+  readonly grid?: { readonly x?: boolean; readonly y?: boolean };
   readonly extra?: Readonly<Record<string, unknown>>;
 }
 
