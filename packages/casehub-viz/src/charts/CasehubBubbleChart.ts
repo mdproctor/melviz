@@ -60,9 +60,12 @@ export class CasehubBubbleChart extends CasehubChartElement<BubbleChartProps> {
       },
     };
 
+    const col0Type = dataset.columns[0]?.type;
+    const xAxisType = col0Type === "LABEL" ? "category" : "value";
+
     let option: Record<string, unknown> = {
       dataset: { source },
-      xAxis: { type: "value" },
+      xAxis: { type: xAxisType },
       yAxis: { type: "value" },
       series: [series],
       tooltip: { trigger: "item" },

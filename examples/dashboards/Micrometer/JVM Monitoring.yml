@@ -54,6 +54,9 @@ pages:
           - title: Threads
           - displayer:
                 type: BARCHART
+                columns:
+                    - id: Labels
+                      expression: value.replaceAll('state="', '').replaceAll('",', '')
                 lookup:
                     filter:
                         - column: Metric

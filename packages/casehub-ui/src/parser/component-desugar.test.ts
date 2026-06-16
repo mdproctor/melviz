@@ -299,4 +299,36 @@ describe("desugarComponent", () => {
       expect(result.style).toEqual({ margin: "10px" });
     });
   });
+
+  describe("displayer defaults merging", () => {
+    it("handles null displayer with global defaults", () => {
+      const defaults = { chart: { resizable: true }, lookup: { uuid: "global" } };
+      const result = desugarComponent({ displayer: null }, defaults);
+      expect(result.type).toBe("table"); // defaults to table
+      expect(result.props?.["resizable"]).toBe(true);
+    });
+
+    it("handles empty displayer with global defaults", () => {
+      const defaults = { type: "BARCHART", lookup: { uuid: "ds" } };
+      const result = desugarComponent({ displayer: {} }, defaults);
+      expect(result.type).toBe("bar-chart");
+    });
+
+    it("merges displayer defaults with component-level overrides", () => {
+      const defaults = { chart: { resizable: true, height: 200 }, lookup: { uuid: "ds" } };
+      const result = desugarComponent(
+        { displayer: { type: "LINECHART", chart: { height: 400 } } },
+        defaults,
+      );
+      expect(result.type).toBe("line-chart");
+      expect(result.props?.["resizable"]).toBe(true);
+      expect(result.props?.["height"]).toBe(400); // override wins
+    });
+
+    it("component without displayer ignores defaults", () => {
+      const defaults = { type: "BARCHART" };
+      const result = desugarComponent({ html: "<p>Hello</p>" }, defaults);
+      expect(result.type).toBe("html");
+    });
+  });
 });

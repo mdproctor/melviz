@@ -2,18 +2,13 @@ import type { TypedDataSet, CellValue, TypedRow } from "./types.js";
 import { ColumnType } from "./types.js";
 import type { SortOp, SortColumn } from "./sort.js";
 import { DataSetError } from "./errors.js";
+import { findColumn, findColumnIndex } from "./column-lookup.js";
 
 export function applySort(ds: TypedDataSet, op: SortOp): TypedDataSet {
-  // 1. Validate all referenced columns exist
-  const columnMap = new Map(ds.columns.map((c) => [c.id, c]));
-  for (const sortCol of op.columns) {
-    const col = columnMap.get(sortCol.columnId);
-    if (!col) {
-      throw new DataSetError(
-        "UNKNOWN_COLUMN",
-        `Sort references unknown column: ${sortCol.columnId}`
-      );
-    }
+  // 1. Validate all referenced columns exist (case-insensitive)
+  const validColumns = op.columns.filter((sortCol) => findColumn(ds.columns, sortCol.columnId) !== undefined);
+  if (validColumns.length === 0) {
+    return ds;
   }
 
   // 2. Empty dataset or single row - return as is
@@ -21,14 +16,12 @@ export function applySort(ds: TypedDataSet, op: SortOp): TypedDataSet {
     return ds;
   }
 
-  // 3. Build column index map for fast lookup
-  const colIndexMap = new Map(ds.columns.map((c, i) => [c.id, i]));
-
-  // 4. Create comparison function
+  // 3. Create comparison function (case-insensitive column lookup)
   const compare = (a: TypedRow, b: TypedRow): number => {
-    for (const sortCol of op.columns) {
-      const colIndex = colIndexMap.get(sortCol.columnId)!;
-      const col = columnMap.get(sortCol.columnId)!;
+    for (const sortCol of validColumns) {
+      const colIndex = findColumnIndex(ds.columns, sortCol.columnId);
+      const col = findColumn(ds.columns, sortCol.columnId);
+      if (colIndex === -1 || !col) continue;
       const aCell = a.cells[colIndex]!;
       const bCell = b.cells[colIndex]!;
 

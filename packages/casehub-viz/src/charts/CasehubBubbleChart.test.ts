@@ -234,4 +234,32 @@ describe("CasehubBubbleChart", () => {
       expect(symbolSizeFn([50, 60, null])).toBe(27.5);
     });
   });
+
+  describe("axis type detection", () => {
+    it("LABEL column 0 → xAxis type category", () => {
+      const ds = makeDataSet(
+        [["weather", "LABEL"], ["goals", "NUMBER"], ["count", "NUMBER"]],
+        [["Sunny", 3, 5], ["Rainy", 2, 8]],
+      );
+      el.props = { lookup: mockLookup("test") };
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
+      expect((option.xAxis as Record<string, unknown>).type).toBe("category");
+    });
+
+    it("NUMBER column 0 → xAxis type value", () => {
+      const ds = makeDataSet(
+        [["x", "NUMBER"], ["y", "NUMBER"], ["size", "NUMBER"]],
+        [[10, 20, 5], [30, 40, 10]],
+      );
+      el.props = { lookup: mockLookup("test") };
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
+      expect((option.xAxis as Record<string, unknown>).type).toBe("value");
+    });
+  });
 });

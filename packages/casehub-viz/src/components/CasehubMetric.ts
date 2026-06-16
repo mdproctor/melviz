@@ -1,13 +1,13 @@
 import type { TypedDataSet } from "@casehub/data/dist/dataset/types.js";
 import type { MetricProps } from "@casehub/ui/dist/model/displayer-types.js";
 import { CasehubElement } from "../base/CasehubElement.js";
-import { cellToRaw } from "../base/cell-extract.js";
+import { cellToRaw, applyCellExpression, resolveColumnExpression } from "../base/cell-extract.js";
 
 const METRIC_CSS = `
 :host { display: block; font-family: var(--casehub-font, system-ui, sans-serif); color: var(--casehub-text, #333); }
-.card { background: var(--casehub-bg, #fff); border: 1px solid var(--casehub-border, #e0e0e0); border-radius: var(--casehub-radius, 4px); padding: 16px; text-align: center; }
+.card { background: var(--casehub-bg, #fff); border: 1px solid var(--casehub-border, #e0e0e0); border-radius: var(--casehub-radius, 4px); padding: 20px 16px; text-align: center; min-height: 80px; display: flex; flex-direction: column; justify-content: center; }
 .card .title { font-size: 0.85em; color: var(--casehub-text-muted, #888); margin-bottom: 8px; }
-.card .value { font-size: 2em; font-weight: 600; }
+.card .value { font-size: 2em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .card2 { display: flex; align-items: center; gap: 12px; background: var(--casehub-bg, #fff); border: 1px solid var(--casehub-border, #e0e0e0); border-radius: var(--casehub-radius, 4px); padding: 12px 16px; }
 .card2 .value { font-size: 1.5em; font-weight: 600; }
 .card2 .title { font-size: 0.85em; color: var(--casehub-text-muted, #888); }
@@ -17,6 +17,12 @@ const METRIC_CSS = `
 .quota .value { font-size: 1.5em; font-weight: 600; }
 .quota .bar { height: 6px; background: var(--casehub-border, #e0e0e0); border-radius: 3px; margin-top: 8px; }
 .quota .bar-fill { height: 100%; background: var(--casehub-accent, #5470c6); border-radius: 3px; }
+.pf-v5-c-card, .pf-c-card, [class*="card-pf"] { background: var(--casehub-bg, #fff); border: 1px solid var(--casehub-border, #e0e0e0); border-radius: var(--casehub-radius, 4px); padding: 16px; text-align: center; }
+.pf-v5-c-card__title, .pf-c-card__title { margin-bottom: 4px; }
+.pf-v5-c-title, .pf-c-title { font-weight: 600; }
+.pf-m-2xl { font-size: 1.8em; }
+.pf-m-xl { font-size: 1.4em; }
+.pf-v5-c-card__footer, .pf-c-card__footer { font-size: 0.85em; color: var(--casehub-text-muted, #888); }
 `;
 
 export class CasehubMetric extends CasehubElement<MetricProps> {
@@ -33,7 +39,10 @@ export class CasehubMetric extends CasehubElement<MetricProps> {
     container.appendChild(style);
 
     // Extract value and title
-    const raw = cellToRaw(dataset.rows[0]!.cell(dataset.columns[0]!.id));
+    const colId = dataset.columns[0]!.id;
+    let raw = cellToRaw(dataset.rows[0]!.cell(colId));
+    const expr = resolveColumnExpression(colId, props.columns);
+    if (expr) raw = applyCellExpression(raw, expr);
     const value = raw === null ? "" : String(raw);
     const title = props.title ?? "";
 
@@ -44,7 +53,14 @@ export class CasehubMetric extends CasehubElement<MetricProps> {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
-      const html = props.html.template.replace(/\$\{value\}/g, escaped);
+      const escapedTitle = title
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+      const html = props.html.template
+        .replace(/\$\{value\}/g, escaped)
+        .replace(/\$\{title\}/g, escapedTitle);
       const wrapper = document.createElement("div");
       wrapper.innerHTML = html;
       container.appendChild(wrapper);

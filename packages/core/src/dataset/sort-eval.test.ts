@@ -93,16 +93,18 @@ describe("applySort", () => {
     expect(result.rows.map((r) => extractValue(r.cells[0]))).toEqual([20, 10, null]);
   });
 
-  it("unknown column throws UNKNOWN_COLUMN error", () => {
+  it("unknown column is skipped — returns unsorted data", () => {
     const ds = toTypedDataSet({
       columns: [col("val", "Value", ColumnType.NUMBER)],
-      data: [["10"]],
+      data: [["10"], ["5"]],
     });
     const op: SortOp = {
       type: "sort",
       columns: [{ columnId: "missing" as ColumnId, order: "ASCENDING" }],
     };
-    expect(() => applySort(ds, op)).toThrow("UNKNOWN_COLUMN");
+    const result = applySort(ds, op);
+    expect(result.rows[0]!.cells[0]!.value).toBe(10);
+    expect(result.rows[1]!.cells[0]!.value).toBe(5);
   });
 
   it("stable sort preserves original order for equal elements", () => {

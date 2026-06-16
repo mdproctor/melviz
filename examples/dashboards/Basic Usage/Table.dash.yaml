@@ -1,15 +1,39 @@
 datasets:
-    - uuid: gists
-      url: https://api.github.com/gists
-      cacheEnabled: true
-      expression: >-
-          $map($, function($v){
-              [$v.created_at,$v.description,$v.files ~> $keys ~> $count]
-          })
+    - uuid: employees
+      content: >-
+          [
+              ["Alice Johnson", "Engineering", "Senior Developer", 2018, 92000],
+              ["Bob Smith", "Marketing", "Marketing Manager", 2019, 78000],
+              ["Charlie Brown", "Engineering", "Staff Engineer", 2016, 115000],
+              ["Diana Ross", "Sales", "Account Executive", 2021, 65000],
+              ["Eve Wilson", "Engineering", "Junior Developer", 2023, 58000],
+              ["Frank Miller", "Marketing", "Content Writer", 2020, 52000],
+              ["Grace Lee", "Sales", "Sales Director", 2017, 105000],
+              ["Henry Davis", "Engineering", "DevOps Engineer", 2019, 88000],
+              ["Iris Chen", "Marketing", "Brand Manager", 2018, 82000],
+              ["Jack Taylor", "Sales", "Business Analyst", 2022, 62000],
+              ["Karen White", "Engineering", "QA Lead", 2017, 95000],
+              ["Leo Martinez", "Sales", "Account Manager", 2020, 71000],
+              ["Mia Thompson", "Engineering", "Frontend Developer", 2021, 75000],
+              ["Noah Garcia", "Marketing", "SEO Specialist", 2022, 55000],
+              ["Olivia Anderson", "Sales", "Regional Manager", 2016, 110000],
+              ["Paul Robinson", "Engineering", "Backend Developer", 2020, 85000],
+              ["Quinn Harris", "Marketing", "Social Media Manager", 2023, 48000],
+              ["Rachel Clark", "Sales", "Sales Representative", 2021, 58000],
+              ["Sam Walker", "Engineering", "Security Engineer", 2018, 98000],
+              ["Tina Hall", "Marketing", "Marketing Director", 2015, 125000]
+          ]
       columns:
-          - id: Created
-          - id: Description
-          - id: Total Files
+          - id: Name
+            type: LABEL
+          - id: Department
+            type: LABEL
+          - id: Role
+            type: LABEL
+          - id: Joined
+            type: NUMBER
+          - id: Salary
+            type: NUMBER
 pages:
     - components:
           - displayer:
@@ -17,4 +41,4 @@ pages:
                     height: 600
                     resizable: true
                 lookup:
-                    uuid: gists
+                    uuid: employees

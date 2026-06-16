@@ -34,11 +34,14 @@ describe("resolveNavigation", () => {
 
     const result = resolveNavigation(components, pages, navTree);
 
-    expect(result.length).toBe(1);
+    // Nav component (tabs) has no slots — content is at the target
+    expect(result.length).toBe(2);
     expect(result[0]!.type).toBe("tabs");
-    expect(result[0]!.slots!["CPU Usage"]).toBeDefined();
-    expect(result[0]!.slots!["Memory"]).toBeDefined();
-    // slot-target removed
+    expect(result[0]!.slots).toBeUndefined();
+    // Slot-target replaced with tabs containing the page slots
+    expect(result[1]!.type).toBe("tabs");
+    expect(result[1]!.slots!["CPU Usage"]).toBeDefined();
+    expect(result[1]!.slots!["Memory"]).toBeDefined();
   });
 
   it("removes slot-target placeholders", () => {

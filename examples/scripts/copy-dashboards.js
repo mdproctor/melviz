@@ -44,4 +44,30 @@ if (fs.existsSync(srcDir)) {
   }
 }
 
+// Copy mock data
+const mockDataDir = path.join(__dirname, '../mock-data');
+if (fs.existsSync(mockDataDir)) {
+  console.log('Copying mock data...');
+  copyRecursive(mockDataDir, path.join(targetDir, 'mock-data'));
+}
+
+// Copy mock data to expected endpoint paths for dashboards that reference local APIs
+const mockEndpoints = {
+  'mock-data/quarkus-metrics.txt': 'data/quarkus/metrics',
+  'mock-data/jupyterhub-metrics.txt': 'dashboards/jupyterhub/metrics/metrics',
+};
+
+for (const [src, dest] of Object.entries(mockEndpoints)) {
+  const srcPath = path.join(__dirname, '..', src);
+  const destPath = path.join(targetDir, dest);
+  if (fs.existsSync(srcPath)) {
+    const destDir = path.dirname(destPath);
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+    }
+    fs.copyFileSync(srcPath, destPath);
+    console.log(`Mock endpoint: ${dest}`);
+  }
+}
+
 console.log('All files copied successfully');

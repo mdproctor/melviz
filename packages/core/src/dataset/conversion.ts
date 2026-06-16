@@ -38,15 +38,17 @@ export function createTypedRow(cells: readonly CellValue[], columns: readonly Co
   const frozenCells = Object.freeze([...cells]);
 
   const columnIndex = new Map<ColumnId, number>();
+  const columnIndexLower = new Map<string, number>();
   for (let i = 0; i < columns.length; i++) {
     columnIndex.set(columns[i]!.id, i);
+    columnIndexLower.set((columns[i]!.id as string).toLowerCase(), i);
   }
 
   const row: TypedRow = {
     cells: frozenCells,
 
     cell(columnId: ColumnId): CellValue {
-      const idx = columnIndex.get(columnId);
+      const idx = columnIndex.get(columnId) ?? columnIndexLower.get((columnId as string).toLowerCase());
       if (idx === undefined) {
         throw new DataSetError("UNKNOWN_COLUMN", `Column "${columnId}" not found`);
       }

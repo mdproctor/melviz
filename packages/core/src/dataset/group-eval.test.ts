@@ -1158,7 +1158,7 @@ describe("applyGroup", () => {
     expect(() => applyGroup(ds, op)).toThrow("Key columns require a grouping key");
   });
 
-  it("null groupingKey — kind:select returns first row value", () => {
+  it("null groupingKey — all-select columns project all rows", () => {
     const ds = makeTestDs();
     const op: GroupOp = {
       type: "group",
@@ -1169,8 +1169,28 @@ describe("applyGroup", () => {
     };
     const result = applyGroup(ds, op);
 
+    expect(result.rows).toHaveLength(4);
+    expect(result.rows[0]!.text("firstDept" as ColumnId)).toBe("Sales");
+    expect(result.rows[1]!.text("firstDept" as ColumnId)).toBe("Engineering");
+    expect(result.rows[2]!.text("firstDept" as ColumnId)).toBe("Sales");
+    expect(result.rows[3]!.text("firstDept" as ColumnId)).toBe("Marketing");
+  });
+
+  it("null groupingKey — mixed select+aggregate still aggregates to one row", () => {
+    const ds = makeTestDs();
+    const op: GroupOp = {
+      type: "group",
+      groupingKey: null,
+      columns: [
+        { kind: "select", sourceId: "dept" as ColumnId, columnId: "firstDept" as ColumnId },
+        { kind: "aggregate", sourceId: "revenue" as ColumnId, columnId: "total" as ColumnId, fn: { fn: "SUM" } },
+      ],
+    };
+    const result = applyGroup(ds, op);
+
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]!.text("firstDept" as ColumnId)).toBe("Sales");
+    expect(result.rows[0]!.number("total" as ColumnId)).toBe(500);
   });
 
   it("distinct grouping — one row per unique dept", () => {

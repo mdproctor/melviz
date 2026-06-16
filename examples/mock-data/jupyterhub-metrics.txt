@@ -1,0 +1,67 @@
+# HELP jupyterhub_total_users Total number of users
+# TYPE jupyterhub_total_users gauge
+jupyterhub_total_users 127
+# HELP jupyterhub_running_servers Number of running servers
+# TYPE jupyterhub_running_servers gauge
+jupyterhub_running_servers 42
+# HELP process_resident_memory_bytes Resident memory size in bytes
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 524288000
+# HELP jupyterhub_hub_startup_duration_seconds_sum Hub startup duration
+# TYPE jupyterhub_hub_startup_duration_seconds_sum gauge
+jupyterhub_hub_startup_duration_seconds_sum 12.847
+# HELP jupyterhub_server_spawn_duration_seconds_count Server spawn count by status
+# TYPE jupyterhub_server_spawn_duration_seconds_count counter
+jupyterhub_server_spawn_duration_seconds_count{status="success",} 312
+jupyterhub_server_spawn_duration_seconds_count{status="failure",} 18
+jupyterhub_server_spawn_duration_seconds_count{status="timeout",} 7
+# HELP jupyterhub_server_stop_seconds_count Server stop count by status
+# TYPE jupyterhub_server_stop_seconds_count counter
+jupyterhub_server_stop_seconds_count{status="success",} 298
+jupyterhub_server_stop_seconds_count{status="failure",} 4
+# HELP jupyterhub_proxy_add_duration_seconds_count Proxy add count by status
+# TYPE jupyterhub_proxy_add_duration_seconds_count counter
+jupyterhub_proxy_add_duration_seconds_count{status="success",} 305
+jupyterhub_proxy_add_duration_seconds_count{status="failure",} 9
+# HELP jupyterhub_request_duration_seconds_count HTTP request count
+# TYPE jupyterhub_request_duration_seconds_count counter
+jupyterhub_request_duration_seconds_count{method="GET",handler="/hub/api/users",code="200",} 8421
+jupyterhub_request_duration_seconds_count{method="GET",handler="/hub/api/users",code="403",} 12
+jupyterhub_request_duration_seconds_count{method="POST",handler="/hub/api/users",code="201",} 127
+jupyterhub_request_duration_seconds_count{method="GET",handler="/hub/login",code="200",} 3842
+jupyterhub_request_duration_seconds_count{method="GET",handler="/hub/api/status",code="200",} 15230
+jupyterhub_request_duration_seconds_count{method="DELETE",handler="/hub/api/users",code="204",} 45
+jupyterhub_request_duration_seconds_count{method="GET",handler="/hub/spawn",code="200",} 892
+jupyterhub_request_duration_seconds_count{method="POST",handler="/hub/spawn",code="302",} 312
+# HELP jupyterhub_proxy_add_duration_seconds_bucket Proxy add duration histogram
+# TYPE jupyterhub_proxy_add_duration_seconds_bucket histogram
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.005",} 42
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.01",} 98
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.025",} 187
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.05",} 245
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.1",} 289
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.25",} 302
+jupyterhub_proxy_add_duration_seconds_bucket{le="0.5",} 305
+jupyterhub_proxy_add_duration_seconds_bucket{le="1.0",} 305
+jupyterhub_proxy_add_duration_seconds_bucket{le="+Inf",} 305
+# HELP jupyterhub_proxy_delete_duration_seconds_bucket Proxy delete duration histogram
+# TYPE jupyterhub_proxy_delete_duration_seconds_bucket histogram
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.005",} 38
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.01",} 112
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.025",} 198
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.05",} 234
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.1",} 256
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.25",} 264
+jupyterhub_proxy_delete_duration_seconds_bucket{le="0.5",} 267
+jupyterhub_proxy_delete_duration_seconds_bucket{le="1.0",} 267
+jupyterhub_proxy_delete_duration_seconds_bucket{le="+Inf",} 267
+# HELP jupyterhub_server_spawn_duration_seconds_bucket Server spawn duration histogram
+# TYPE jupyterhub_server_spawn_duration_seconds_bucket histogram
+jupyterhub_server_spawn_duration_seconds_bucket{le="0.5",} 12
+jupyterhub_server_spawn_duration_seconds_bucket{le="1.0",} 45
+jupyterhub_server_spawn_duration_seconds_bucket{le="2.5",} 134
+jupyterhub_server_spawn_duration_seconds_bucket{le="5.0",} 245
+jupyterhub_server_spawn_duration_seconds_bucket{le="10.0",} 298
+jupyterhub_server_spawn_duration_seconds_bucket{le="30.0",} 310
+jupyterhub_server_spawn_duration_seconds_bucket{le="60.0",} 312
+jupyterhub_server_spawn_duration_seconds_bucket{le="+Inf",} 312

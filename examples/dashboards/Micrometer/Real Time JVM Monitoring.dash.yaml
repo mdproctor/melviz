@@ -1,3 +1,6 @@
+# This dashboard requires a live JVM with Micrometer metrics exposed at a Prometheus endpoint.
+# Set the dataset URL below to your Quarkus/Spring app's metrics path (e.g. http://localhost:8080/q/metrics).
+# Without a live endpoint, charts will be empty — this dashboard accumulates data over time from a polling stream.
 global:
   displayer:
     chart:

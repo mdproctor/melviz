@@ -1,4 +1,5 @@
 import type { Component } from "../model/types.js";
+import { parseLookup } from "@casehub/data/dist/dataset/lookup-parser.js";
 
 /**
  * Maps DisplayerType enum values to component type strings.
@@ -232,17 +233,32 @@ export function desugarDisplayer(raw: Record<string, unknown>): Component {
     }
   }
 
-  // Extract lookup (passthrough)
-  const lookup = raw.lookup || raw.dataSetLookup;
-  if (lookup) {
-    props.lookup = lookup;
-
-    // Extract rowCount from lookup into props (display-level setting)
-    if (typeof lookup === "object" && lookup !== null) {
-      const lookupObj = lookup as Record<string, unknown>;
+  // Parse lookup from YAML format to typed DataSetLookup
+  const rawLookup = raw.lookup || raw.dataSetLookup;
+  if (rawLookup) {
+    // Extract rowCount before parsing (display-level setting, not part of DataSetLookup)
+    if (typeof rawLookup === "object" && rawLookup !== null) {
+      const lookupObj = rawLookup as Record<string, unknown>;
       if (lookupObj.rowCount !== undefined) {
         props.rowCount = lookupObj.rowCount;
       }
+    }
+
+    props.lookup = parseLookup(rawLookup);
+  }
+
+  // Handle inline dataSet on displayer (legacy DashBuilder shorthand)
+  if (raw.dataSet !== undefined) {
+    props.inlineDataSet = raw.dataSet;
+  }
+
+  // Table defaults: pageSize 10 and filter enabled (matching GWT behaviour)
+  if (type === "table") {
+    if (props.pageSize === undefined) {
+      props.pageSize = 10;
+    }
+    if (props.filter === undefined) {
+      props.filter = { enabled: true };
     }
   }
 

@@ -25,12 +25,14 @@ export class CasehubTimeseries extends CasehubChartElement<TimeseriesProps> {
     const source = datasetToSource(dataset, props.columns);
 
     // Stage 2: Build base option
-    // Generate series for each data column (skip first column = time axis)
+    // Determine time axis column: if column 0 is LABEL, use column 1 as time axis
+    const col0Type = dataset.columns[0]?.type;
+    const timeCol = col0Type === "LABEL" && dataset.columns.length > 2 ? 1 : 0;
     const series: Record<string, unknown>[] = [];
-    for (let i = 1; i < dataset.columns.length; i++) {
+    for (let i = timeCol + 1; i < dataset.columns.length; i++) {
       series.push({
         type: "line",
-        encode: { x: 0, y: i },
+        encode: { x: timeCol, y: i },
       });
     }
 

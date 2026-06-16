@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { desugarDisplayer } from "./displayer-desugar.js";
+import type { DataSetLookup } from "@casehub/data/dist/dataset/lookup.js";
 
 describe("desugarDisplayer", () => {
   it("maps BARCHART to bar-chart with typed props", () => {
@@ -202,6 +203,48 @@ describe("desugarDisplayer", () => {
     expect(result.props?.["pageSize"]).toBe(25);
   });
 
+  it("table defaults pageSize to 10 when not specified", () => {
+    const result = desugarDisplayer({
+      type: "TABLE",
+      lookup: { uuid: "data" },
+    });
+    expect(result.props?.["pageSize"]).toBe(10);
+  });
+
+  it("table defaults filter to enabled when not specified", () => {
+    const result = desugarDisplayer({
+      type: "TABLE",
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).filter).toEqual({ enabled: true });
+  });
+
+  it("table explicit pageSize overrides default", () => {
+    const result = desugarDisplayer({
+      type: "TABLE",
+      table: { pageSize: 25 },
+      lookup: { uuid: "data" },
+    });
+    expect(result.props?.["pageSize"]).toBe(25);
+  });
+
+  it("table explicit filter overrides default", () => {
+    const result = desugarDisplayer({
+      type: "TABLE",
+      filter: { enabled: false },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).filter).toEqual({ enabled: false });
+  });
+
+  it("non-table types do not get table defaults", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      lookup: { uuid: "data" },
+    });
+    expect(result.props?.["pageSize"]).toBeUndefined();
+  });
+
   it("extracts columns", () => {
     const result = desugarDisplayer({
       type: "TABLE",
@@ -222,7 +265,9 @@ describe("desugarDisplayer", () => {
       type: "BARCHART",
       dataSetLookup: { uuid: "sales", rowCount: 100 },
     });
-    expect((result.props as any).lookup).toEqual({ uuid: "sales", rowCount: 100 });
+    const lookup = (result.props as any).lookup as DataSetLookup;
+    expect(lookup.dataSetId).toBe("sales");
+    expect(lookup.operations).toEqual([]);
     expect(result.props?.["rowCount"]).toBe(100);
   });
 
@@ -362,5 +407,57 @@ describe("desugarDisplayer", () => {
       lookup: { uuid: "data" },
     });
     expect((result.props as any).grid).toEqual({ x: false });
+  });
+
+  it("parses lookup from YAML format to DataSetLookup", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      lookup: {
+        uuid: "sales",
+        group: [{
+          columnGroup: { source: "Category" },
+          functions: [{ source: "Category" }, { source: "Value", function: "SUM" }],
+        }],
+      },
+    });
+    const lookup = (result.props as any).lookup as DataSetLookup;
+    expect(lookup.dataSetId).toBe("sales");
+    expect(lookup.operations).toHaveLength(1);
+    expect(lookup.operations[0].type).toBe("group");
+  });
+
+  it("parses lookup with filter and sort", () => {
+    const result = desugarDisplayer({
+      type: "TABLE",
+      lookup: {
+        uuid: "data",
+        filter: [{ column: "status", function: "EQUALS_TO", args: ["active"] }],
+        sort: [{ column: "name", order: "ASCENDING" }],
+      },
+    });
+    const lookup = (result.props as any).lookup as DataSetLookup;
+    expect(lookup.dataSetId).toBe("data");
+    expect(lookup.operations).toHaveLength(2);
+    expect(lookup.operations[0].type).toBe("filter");
+    expect(lookup.operations[1].type).toBe("sort");
+  });
+
+  it("parses simple lookup with uuid only", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      lookup: { uuid: "hello" },
+    });
+    const lookup = (result.props as any).lookup as DataSetLookup;
+    expect(lookup.dataSetId).toBe("hello");
+    expect(lookup.operations).toEqual([]);
+  });
+
+  it("captures inline dataSet from displayer", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      dataSet: '["Hello World", 42]',
+    });
+    expect(result.type).toBe("bar-chart");
+    expect((result.props as any).inlineDataSet).toBe('["Hello World", 42]');
   });
 });

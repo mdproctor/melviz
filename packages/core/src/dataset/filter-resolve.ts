@@ -1,4 +1,5 @@
 import type { Column, ColumnId } from "./types.js";
+import { findColumn } from "./column-lookup.js";
 import { ColumnType } from "./types.js";
 import type {
   FilterExpression,
@@ -33,7 +34,7 @@ export function resolveFilterTypes(
   }
 
   if (expression.type === "unresolved") {
-    const column = columns.find(c => c.id === expression.columnId);
+    const column = findColumn(columns, expression.columnId);
     if (!column) {
       throw new DataSetError(
         "UNKNOWN_COLUMN",

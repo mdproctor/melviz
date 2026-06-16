@@ -5,6 +5,9 @@ global:
         labels_angle: 15
     chart:
       resizable: true
+    columns:
+      - id: Label
+        expression: value.replace(/[a-z_]+="|"/g, '').replace(/,$/,'')
 datasets:
   - uuid: metrics
     url: metrics

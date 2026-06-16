@@ -37,22 +37,54 @@ export function resolveNavigation(
 ): Component[] {
   const typedNavTree = navTree as NavTree | undefined;
 
-  return components
+  // Pass 1: Collect nav groups that specify a targetDivId.
+  // Their page slots go to the matching slot-target, not into the nav component.
+  const targetSlots = new Map<string, Record<string, Component[]>>();
+
+  const resolved = components
     .map((component) => {
-      // Resolve page-ref components
       if (component.type === "page-ref") {
         return resolvePageRef(component, pages);
       }
 
-      // Resolve nav components with navGroupId
+      if (component.type === "panel" && component.props?.["name"]) {
+        return resolvePanelRef(component, pages);
+      }
+
       if (component.props?.["navGroupId"]) {
+        const targetDivId = component.props["targetDivId"] as string | undefined;
+        if (targetDivId) {
+          const group = resolveNavGroup(component, pages, typedNavTree);
+          if (group.slots) {
+            targetSlots.set(targetDivId, group.slots as Record<string, Component[]>);
+          }
+          // Strip slots from the nav component — they'll render at the target
+          const { slots: _s, ...navOnly } = group;
+          return navOnly as Component;
+        }
         return resolveNavGroup(component, pages, typedNavTree);
       }
 
-      // Pass through all other components
+      return component;
+    });
+
+  // Pass 2: Replace slot-targets with their collected page content
+  return resolved
+    .map((component) => {
+      if (component.type === "slot-target") {
+        const divId = component.props?.["id"] as string | undefined;
+        if (divId && targetSlots.has(divId)) {
+          const slots = targetSlots.get(divId)!;
+          return {
+            type: "tabs" as const,
+            props: {},
+            slots,
+          };
+        }
+      }
       return component;
     })
-    .filter((component) => component.type !== "slot-target"); // Remove slot-target placeholders
+    .filter((component) => component.type !== "slot-target");
 }
 
 /**
@@ -71,6 +103,26 @@ function resolvePageRef(pageRef: Component, pages: Component[]): Component {
   }
 
   return matchingPage;
+}
+
+/**
+ * Resolves a panel reference to the matching page's content, wrapped in a panel container.
+ * If no matching page is found, returns the panel component unchanged (it may be a title panel).
+ */
+function resolvePanelRef(panel: Component, pages: Component[]): Component {
+  const pageName = panel.props?.["name"] as string;
+  const matchingPage = pages.find((p) => p.props?.["name"] === pageName);
+  if (!matchingPage) {
+    return panel;
+  }
+
+  return {
+    ...panel,
+    type: "panel",
+    props: { ...panel.props, title: pageName },
+    ...(matchingPage.items ? { items: matchingPage.items } : {}),
+    ...(matchingPage.slots ? { slots: matchingPage.slots } : {}),
+  };
 }
 
 /**

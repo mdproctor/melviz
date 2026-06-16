@@ -1,0 +1,74 @@
+# HELP system_cpu_usage Recent CPU usage for the whole system
+# TYPE system_cpu_usage gauge
+system_cpu_usage 0.342
+# HELP process_cpu_usage Recent CPU usage for the JVM process
+# TYPE process_cpu_usage gauge
+process_cpu_usage 0.128
+# HELP process_files_open_files Open file descriptors
+# TYPE process_files_open_files gauge
+process_files_open_files 247
+# HELP process_files_max_files Maximum file descriptors
+# TYPE process_files_max_files gauge
+process_files_max_files 1048576
+# HELP process_uptime_seconds JVM process uptime
+# TYPE process_uptime_seconds gauge
+process_uptime_seconds 86472.5
+# HELP jvm_threads_peak_threads Peak live thread count
+# TYPE jvm_threads_peak_threads gauge
+jvm_threads_peak_threads 48
+# HELP jvm_threads_live_threads Current live thread count
+# TYPE jvm_threads_live_threads gauge
+jvm_threads_live_threads 42
+# HELP jvm_threads_daemon_threads Current daemon thread count
+# TYPE jvm_threads_daemon_threads gauge
+jvm_threads_daemon_threads 28
+# HELP jvm_threads_states_threads Thread states
+# TYPE jvm_threads_states_threads gauge
+jvm_threads_states_threads{state="runnable",} 12
+jvm_threads_states_threads{state="blocked",} 0
+jvm_threads_states_threads{state="waiting",} 18
+jvm_threads_states_threads{state="timed-waiting",} 8
+jvm_threads_states_threads{state="new",} 0
+jvm_threads_states_threads{state="terminated",} 0
+# HELP jvm_memory_used_bytes JVM memory used
+# TYPE jvm_memory_used_bytes gauge
+jvm_memory_used_bytes{area="heap",id="G1 Eden Space",} 52428800
+jvm_memory_used_bytes{area="heap",id="G1 Old Gen",} 167772160
+jvm_memory_used_bytes{area="heap",id="G1 Survivor Space",} 8388608
+jvm_memory_used_bytes{area="nonheap",id="Metaspace",} 78643200
+jvm_memory_used_bytes{area="nonheap",id="CodeCache",} 41943040
+jvm_memory_used_bytes{area="nonheap",id="Compressed Class Space",} 10485760
+# HELP jvm_memory_max_bytes JVM memory max
+# TYPE jvm_memory_max_bytes gauge
+jvm_memory_max_bytes{area="heap",id="G1 Eden Space",} 268435456
+jvm_memory_max_bytes{area="heap",id="G1 Old Gen",} 536870912
+jvm_memory_max_bytes{area="heap",id="G1 Survivor Space",} 33554432
+jvm_memory_max_bytes{area="nonheap",id="Metaspace",} -1
+jvm_memory_max_bytes{area="nonheap",id="CodeCache",} 251658240
+jvm_memory_max_bytes{area="nonheap",id="Compressed Class Space",} 109051904
+# HELP jvm_gc_pause_seconds GC pause duration
+# TYPE jvm_gc_pause_seconds summary
+jvm_gc_pause_seconds_count{action="end of minor GC",cause="G1 Evacuation Pause",} 127
+jvm_gc_pause_seconds_sum{action="end of minor GC",cause="G1 Evacuation Pause",} 3.842
+jvm_gc_pause_seconds_count{action="end of major GC",cause="G1 Humongous Allocation",} 3
+jvm_gc_pause_seconds_sum{action="end of major GC",cause="G1 Humongous Allocation",} 0.956
+# HELP jvm_memory_committed_bytes JVM memory committed
+# TYPE jvm_memory_committed_bytes gauge
+jvm_memory_committed_bytes{area="heap",id="G1 Eden Space",} 134217728
+jvm_memory_committed_bytes{area="heap",id="G1 Old Gen",} 268435456
+jvm_memory_committed_bytes{area="heap",id="G1 Survivor Space",} 16777216
+jvm_memory_committed_bytes{area="nonheap",id="Metaspace",} 83886080
+jvm_memory_committed_bytes{area="nonheap",id="CodeCache",} 50331648
+jvm_memory_committed_bytes{area="nonheap",id="Compressed Class Space",} 14680064
+# HELP http_server_requests_seconds HTTP server request duration
+# TYPE http_server_requests_seconds summary
+http_server_requests_seconds_count{method="GET",uri="/api/users",status="200",} 4521
+http_server_requests_seconds_sum{method="GET",uri="/api/users",status="200",} 12.847
+http_server_requests_seconds_count{method="POST",uri="/api/users",status="201",} 382
+http_server_requests_seconds_sum{method="POST",uri="/api/users",status="201",} 2.194
+http_server_requests_seconds_count{method="GET",uri="/api/health",status="200",} 28934
+http_server_requests_seconds_sum{method="GET",uri="/api/health",status="200",} 8.672
+http_server_requests_seconds_count{method="GET",uri="/api/orders",status="200",} 1876
+http_server_requests_seconds_sum{method="GET",uri="/api/orders",status="200",} 9.432
+http_server_requests_seconds_count{method="GET",uri="/api/users",status="500",} 12
+http_server_requests_seconds_sum{method="GET",uri="/api/users",status="500",} 0.384

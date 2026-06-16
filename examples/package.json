@@ -11,7 +11,9 @@
     "build:bundle:dev": "webpack --env dev",
     "build": "yarn clean && yarn generate-samples && yarn build:bundle && yarn copy-dashboards",
     "serve": "npx http-server dist -c-1 -p 8080 -o",
-    "dev": "node scripts/dev-server.js"
+    "dev": "node scripts/dev-server.js",
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed"
   },
   "dependencies": {
     "@casehub/runtime": "workspace:*",
@@ -19,6 +21,7 @@
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "browser-sync": "^2.29.3",
     "chokidar": "^3.5.3",
     "http-server": "^14.1.1",

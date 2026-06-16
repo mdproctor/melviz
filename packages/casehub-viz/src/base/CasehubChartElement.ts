@@ -23,6 +23,34 @@ export abstract class CasehubChartElement<
   private _chart: ECharts | undefined;
   private _currentTheme = "";
 
+  constructor() {
+    super();
+    this.container.style.minHeight = "300px";
+  }
+
+  override set props(value: P) {
+    this.applySizing(value);
+    super.props = value;
+  }
+
+  override get props(): P | undefined {
+    return super.props;
+  }
+
+  private applySizing(props: P): void {
+    const raw = props as Readonly<Record<string, unknown>>;
+    const h = raw.height;
+    if (h !== undefined && h !== null) {
+      const css = typeof h === "number" ? `${h}px` : String(h);
+      this.container.style.minHeight = css;
+      this.container.style.height = css;
+    }
+    const w = raw.width;
+    if (w !== undefined && w !== null) {
+      this.container.style.width = typeof w === "number" ? `${w}px` : String(w);
+    }
+  }
+
   // ── Abstract — subclasses implement ─────────────────────────────────
 
   abstract buildOption(

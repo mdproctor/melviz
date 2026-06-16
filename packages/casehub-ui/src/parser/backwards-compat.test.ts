@@ -65,15 +65,16 @@ describe("backwards compatibility — existing dashboards", () => {
       expect(settings["dataComponentDefaults"]).toBeDefined();
     });
 
-    it("resolves navigation components with slots", () => {
-      // The index page has TABS with navGroupId MainGroup
+    it("resolves navigation components with content at target", () => {
+      // The index page has TABS with navGroupId MainGroup + targetDivId
+      // Content slots go to the target location, not inside the tabs nav
       const indexPage = root.slots!["content"]!.find(
         (p) => (p.props as Record<string, unknown>)?.["name"] === "index",
       )!;
       expect(indexPage).toBeDefined();
-      const tabsItem = indexPage.items!.find((item) => item.component.type === "tabs");
-      expect(tabsItem).toBeDefined();
-      expect(tabsItem!.component.slots).toBeDefined();
+      const contentTabs = indexPage.items!.find((item) => item.component.type === "tabs" && item.component.slots);
+      expect(contentTabs).toBeDefined();
+      expect(Object.keys(contentTabs!.component.slots!).length).toBeGreaterThan(0);
     });
 
     it("handles external components (EXTERNAL type)", () => {
@@ -180,9 +181,16 @@ describe("backwards compatibility — existing dashboards", () => {
 
     it("contains bar chart and pie chart from nested layout", () => {
       const page = root.slots!["content"]![0]!;
-      const types = page.items!.map((item) => item.component.type);
-      expect(types).toContain("bar-chart");
-      expect(types).toContain("pie-chart");
+      const allTypes: string[] = [];
+      function collectTypes(items: readonly { component: { type: string; items?: readonly { component: { type: string } }[] } }[]): void {
+        for (const item of items) {
+          allTypes.push(item.component.type);
+          if (item.component.items) collectTypes(item.component.items);
+        }
+      }
+      collectTypes(page.items!);
+      expect(allTypes).toContain("bar-chart");
+      expect(allTypes).toContain("pie-chart");
     });
   });
 

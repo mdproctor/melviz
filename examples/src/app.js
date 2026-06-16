@@ -163,7 +163,29 @@ async function loadDashboardInTarget(dashboardPath) {
         dashboardTarget.innerHTML = "";
         dashboardTarget.className = "";
 
-        currentSite = await window.casehub.loadSite(dashboardTarget, yamlText);
+        // Resolve base URL for relative dataset paths (e.g. url: metrics)
+        const dashboardDir = dashboardPath.substring(0, dashboardPath.lastIndexOf('/') + 1);
+        const baseUrl = `${window.location.origin}/dashboards/${dashboardDir}`;
+
+        // Fallback fetch: when the real fetch fails (CORS, missing infra, unresolved
+        // ${property} vars), serve mock Prometheus metrics so the gallery always shows
+        // something useful.
+        const galleryFetch = async (url, init) => {
+            try {
+                const urlStr = typeof url === 'string' ? url : url.toString();
+                if (urlStr.includes('${')) {
+                    throw new Error('Unresolved property variable');
+                }
+                const resp = await fetch(url, init);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                return resp;
+            } catch {
+                const mockResp = await fetch(`${window.location.origin}/mock-data/prometheus-metrics.txt`);
+                return mockResp;
+            }
+        };
+
+        currentSite = await window.casehub.loadSite(dashboardTarget, yamlText, { baseUrl, fetch: galleryFetch });
     } catch (error) {
         console.error('Error loading dashboard:', error);
         dashboardTarget.innerHTML = `

@@ -1,6 +1,6 @@
 import type { TypedDataSet, ColumnSettings } from "@casehub/data/dist/dataset/types.js";
 import type { ChartSettings } from "@casehub/ui/dist/model/displayer-types.js";
-import { cellToRaw, resolveColumnName } from "../base/cell-extract.js";
+import { cellToRaw, resolveColumnName, applyCellExpression, resolveColumnExpression } from "../base/cell-extract.js";
 
 /**
  * Stage 1: Convert TypedDataSet to ECharts dataset.source format.
@@ -13,10 +13,14 @@ export function datasetToSource(
   dataset: TypedDataSet,
   propsColumns?: readonly ColumnSettings[],
 ): (string | number | Date | null)[][] {
+  const expressions = dataset.columns.map((c) => resolveColumnExpression(c.id, propsColumns));
   return [
     dataset.columns.map((c) => resolveColumnName(c, propsColumns)),
     ...dataset.rows.map((row) =>
-      dataset.columns.map((c) => cellToRaw(row.cell(c.id))),
+      dataset.columns.map((c, i) => {
+        const raw = cellToRaw(row.cell(c.id));
+        return expressions[i] ? applyCellExpression(raw, expressions[i]) : raw;
+      }),
     ),
   ];
 }

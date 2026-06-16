@@ -118,4 +118,77 @@ pages:
     expect(target.innerHTML).toContain("hello");
     site.dispose();
   });
+
+  it("data components are rendered and registered during initial render", async () => {
+    const yaml = `
+datasets:
+  - uuid: test
+    content: '[["A", 1], ["B", 2]]'
+pages:
+  - components:
+      - displayer:
+          type: BARCHART
+          lookup:
+            uuid: test
+            group:
+              - columnGroup:
+                  source: Column 0
+                functions:
+                  - source: Column 0
+                  - source: Column 1
+                    function: SUM
+`;
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    const site = await loadSite(target, yaml);
+    const barChart = target.querySelector("[data-component-type='bar-chart']");
+    expect(barChart).not.toBeNull();
+    site.dispose();
+    document.body.removeChild(target);
+  });
+
+  it("applies dark mode CSS variables when global.mode is dark", async () => {
+    const yaml = `
+global:
+  mode: dark
+pages:
+  - components:
+      - html: "dark page"
+`;
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    const site = await loadSite(target, yaml);
+    expect(target.dataset.casehubTheme).toBe("dark");
+    expect(target.style.getPropertyValue("--casehub-bg")).toBe("#1a1a2e");
+    expect(target.style.getPropertyValue("--casehub-text")).toBe("#e0e0e0");
+    site.dispose();
+    document.body.removeChild(target);
+  });
+
+  it("resets dark mode when loading a non-dark dashboard after a dark one", async () => {
+    const darkYaml = `
+global:
+  mode: dark
+pages:
+  - components:
+      - html: "dark"
+`;
+    const lightYaml = `
+pages:
+  - components:
+      - html: "light"
+`;
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    const darkSite = await loadSite(target, darkYaml);
+    expect(target.dataset.casehubTheme).toBe("dark");
+    darkSite.dispose();
+
+    const lightSite = await loadSite(target, lightYaml);
+    expect(target.dataset.casehubTheme).toBeUndefined();
+    expect(target.style.getPropertyValue("--casehub-bg")).toBe("");
+    lightSite.dispose();
+    document.body.removeChild(target);
+  });
 });

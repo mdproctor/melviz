@@ -55,7 +55,8 @@ export function parsePage(raw: unknown): Component {
         : undefined;
 
     // Parse content — either "components" shorthand or "rows" explicit layout
-    const layout = parsePageContent(p, pageIndex);
+    const displayerDefaults = (global?.["displayer"] ?? global?.["settings"]) as Record<string, unknown> | undefined;
+    const layout = parsePageContent(p, pageIndex, displayerDefaults);
 
     return {
       type: "page" as const,
@@ -66,26 +67,80 @@ export function parsePage(raw: unknown): Component {
   });
 
   // 6. Resolve navigation within each page's grid items
+  // Track pages embedded via page-ref so they can be excluded from top-level
+  const embeddedPageNames = new Set<string>();
   const resolvedPages = childPages.map((page) => {
     if (page.items) {
-      const resolvedItems: GridItem[] = [];
+      // Collect embedded page names
       for (const item of page.items) {
-        const resolved = resolveNavigation([item.component], childPages, navTree);
-        if (resolved.length > 0) {
-          resolvedItems.push({ ...item, component: resolved[0]! });
+        if (item.component.type === "page-ref" || item.component.type === "panel") {
+          const refName = item.component.props?.["name"] as string | undefined;
+          if (refName) embeddedPageNames.add(refName);
         }
       }
+
+      // Resolve all components together so targetDivId can find its slot-target
+      const allComponents = page.items.map(item => item.component);
+      const resolved = resolveNavigation(allComponents, childPages, navTree);
+
+      // Map resolved components back to grid items using the original placement.
+      // resolveNavigation can: transform (new object), remove (slot-target filter),
+      // or replace (slot-target → tabs). Track using a consumed-index approach:
+      // walk the original items and the resolved list together.
+      const resolvedItems: GridItem[] = [];
+      const originalTypes = page.items.map(item => item.component.type);
+      const removedIndices = new Set<number>();
+
+      // Identify which original items were removed (slot-targets that were either
+      // filtered or replaced)
+      const resolvedSet = new Set(resolved);
+      for (let i = 0; i < page.items.length; i++) {
+        const orig = page.items[i]!.component;
+        if (orig.type === "slot-target" && !resolved.includes(orig)) {
+          removedIndices.add(i);
+        }
+      }
+
+      // Walk resolved list, assigning placements from non-removed originals
+      let origIdx = 0;
+      for (const comp of resolved) {
+        // Skip removed originals to stay aligned
+        while (origIdx < page.items.length && removedIndices.has(origIdx)) {
+          origIdx++;
+        }
+        if (origIdx < page.items.length) {
+          resolvedItems.push({ ...page.items[origIdx]!, component: comp });
+          origIdx++;
+        } else {
+          resolvedItems.push({
+            placement: { x: 0, y: resolvedItems.length, w: 12, h: 1 },
+            component: comp,
+          });
+        }
+      }
+
       return { ...page, items: resolvedItems };
     }
 
     return page;
   });
 
+  // 6b. Remove pages that were embedded via page-ref from the top-level slot
+  const topLevelPages = embeddedPageNames.size > 0
+    ? resolvedPages.filter((p) => !embeddedPageNames.has(p.props?.["name"] as string))
+    : resolvedPages;
+
   // 7. Build root page with settings and datasets
   const rootProps: Record<string, unknown> = { name: "root" };
 
-  if (datasets) {
-    rootProps["datasets"] = datasets;
+  // Merge global.dataset into the datasets array (DashBuilder allows defining
+  // a single dataset in global.dataset as well as in the datasets[] array)
+  const allDatasets = [...(datasets ?? [])];
+  if (global?.["dataset"] && typeof global["dataset"] === "object") {
+    allDatasets.push(global["dataset"]);
+  }
+  if (allDatasets.length > 0) {
+    rootProps["datasets"] = allDatasets;
   }
 
   if (global) {
@@ -111,7 +166,7 @@ export function parsePage(raw: unknown): Component {
   return Object.freeze({
     type: "page",
     props: rootProps,
-    slots: { content: resolvedPages },
+    slots: { content: topLevelPages },
   });
 }
 
@@ -142,13 +197,14 @@ export function parsePage(raw: unknown): Component {
 function parsePageContent(
   pageRaw: Record<string, unknown>,
   pageIndex: number,
+  displayerDefaults?: Record<string, unknown>,
 ): { items?: readonly GridItem[] } | { slots?: Readonly<Record<string, readonly Component[]>> } {
   const componentsRaw = pageRaw["components"] as unknown[] | undefined;
   const rowsRaw = pageRaw["rows"] as unknown[] | undefined;
 
   if (componentsRaw) {
     const items: GridItem[] = componentsRaw.map((compRaw, i) => {
-      const component = desugarComponent(compRaw as Record<string, unknown>);
+      const component = desugarComponent(compRaw as Record<string, unknown>, displayerDefaults);
       return {
         placement: { x: 0, y: i, w: 12, h: 1 },
         component: assignIdIfMissing(component, `grid_${pageIndex}_0_${i}`),
@@ -168,7 +224,13 @@ function parsePageContent(
         continue;
       }
 
+      const rowProps = row["properties"] as Record<string, string> | undefined;
+      const hasRowProps = rowProps && typeof rowProps === "object" && Object.keys(rowProps).length > 0;
+
+      // Collect this row's items
+      const rowItems: GridItem[] = [];
       let x = 0;
+      let maxComponentsInColumn = 1;
       for (const colRaw of columnsRaw) {
         const col = colRaw as Record<string, unknown>;
         const span = Number(col["span"] ?? 12);
@@ -178,17 +240,21 @@ function parsePageContent(
         const colRows = col["rows"] as unknown[] | undefined;
 
         if (colComponents) {
+          if (colComponents.length > maxComponentsInColumn) {
+            maxComponentsInColumn = colComponents.length;
+          }
           for (let ci = 0; ci < colComponents.length; ci++) {
-            const component = desugarComponent(colComponents[ci] as Record<string, unknown>);
+            const component = desugarComponent(colComponents[ci] as Record<string, unknown>, displayerDefaults);
             const placed: GridItem = {
-              placement: { x, y: y + ci, w: span, h: 1 },
+              placement: hasRowProps
+                ? { x, y: ci, w: span, h: 1 }
+                : { x, y: y + ci, w: span, h: 1 },
               component: assignIdIfMissing(component, `grid_${pageIndex}_${x}_${y + ci}`),
             };
 
-            // Attach column-level properties as style on the component
             const colProps = col["properties"] as Record<string, string> | undefined;
             if (colProps && typeof colProps === "object" && Object.keys(colProps).length > 0) {
-              items.push({
+              rowItems.push({
                 ...placed,
                 component: {
                   ...placed.component,
@@ -196,32 +262,55 @@ function parsePageContent(
                 },
               });
             } else {
-              items.push(placed);
+              rowItems.push(placed);
             }
           }
         } else if (colRows) {
-          // Nested rows inside a column — recurse by treating as a sub-page
+          const subPageIndex = pageIndex * 100 + x * 10 + y;
           const subPage = { rows: colRows } as Record<string, unknown>;
-          const subResult = parsePageContent(subPage, pageIndex);
-          if ("items" in subResult && subResult.items) {
-            for (const subItem of subResult.items) {
-              // Offset the nested items into this column's position
-              items.push({
-                placement: {
-                  x: x + subItem.placement.x,
-                  y: y + subItem.placement.y,
-                  w: Math.min(subItem.placement.w, span),
-                  h: subItem.placement.h,
-                },
-                component: subItem.component,
-              });
-            }
+          const subResult = parsePageContent(subPage, subPageIndex, displayerDefaults);
+          if ("items" in subResult && subResult.items && subResult.items.length > 0) {
+            const colProps = col["properties"] as Record<string, string> | undefined;
+            const subContainer: Component = {
+              type: "grid",
+              id: `nested_${pageIndex}_${x}_${y}`,
+              items: subResult.items,
+              ...(colProps && typeof colProps === "object" && Object.keys(colProps).length > 0
+                ? { style: colProps }
+                : {}),
+            };
+            const placed: GridItem = {
+              placement: hasRowProps
+                ? { x, y: 0, w: span, h: 1 }
+                : { x, y, w: span, h: 1 },
+              component: subContainer,
+            };
+            rowItems.push(placed);
           }
         }
 
         x += span;
       }
-      y += 1;
+
+      if (hasRowProps && rowItems.length > 0) {
+        // Wrap row items in a grid container with the row's CSS properties
+        const rowComponent: Component = {
+          type: "grid",
+          id: `row_${pageIndex}_${y}`,
+          style: rowProps,
+          items: rowItems,
+        };
+        items.push({
+          placement: { x: 0, y, w: 12, h: 1 },
+          component: rowComponent,
+        });
+      } else {
+        for (const item of rowItems) {
+          items.push(item);
+        }
+      }
+
+      y += hasRowProps ? 1 : maxComponentsInColumn;
     }
     return { items };
   }

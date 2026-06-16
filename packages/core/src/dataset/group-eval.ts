@@ -569,6 +569,18 @@ function applyWholeDatasetAggregation(ds: TypedDataSet, op: GroupOp): TypedDataS
     }
   }
 
+  // If ALL columns are select (no aggregates), this is a column projection —
+  // pass through all rows with only the selected columns (DashBuilder convention)
+  const hasAggregates = op.columns.some(col => col.kind === "aggregate");
+  if (!hasAggregates) {
+    const outputColumns = buildOutputColumns(ds, op.columns);
+    const rows = ds.rows.map(row => {
+      const cells: CellValue[] = op.columns.map(col => row.cell(col.sourceId));
+      return createTypedRow(cells, outputColumns);
+    });
+    return { columns: outputColumns, rows };
+  }
+
   // Type-check numeric aggregations
   for (const col of op.columns) {
     if (col.kind === "aggregate") {
@@ -601,7 +613,7 @@ function resolveStrategy(ds: TypedDataSet, key: GroupingKey): GroupingKey {
     return key;
   }
 
-  const sourceCol = findColumn(ds, key.sourceId);
+  const sourceCol = findColumnInDataset(ds, key.sourceId);
   let resolved: GroupingKey;
 
   switch (sourceCol.type) {
@@ -624,7 +636,7 @@ function resolveStrategy(ds: TypedDataSet, key: GroupingKey): GroupingKey {
 }
 
 function validateStrategyColumnTypeCompat(ds: TypedDataSet, key: GroupingKey): void {
-  const sourceCol = findColumn(ds, key.sourceId);
+  const sourceCol = findColumnInDataset(ds, key.sourceId);
 
   if (key.strategy.mode === "fixedCalendar" && sourceCol.type !== ColumnType.DATE) {
     throw new DataSetError(
@@ -645,7 +657,7 @@ function validateStrategyColumnTypeCompat(ds: TypedDataSet, key: GroupingKey): v
 function validateAggregationColumnType(ds: TypedDataSet, col: ResultColumn & { kind: "aggregate" }): void {
   const fn = col.fn.fn;
   if (fn === "SUM" || fn === "AVERAGE" || fn === "MEDIAN") {
-    const sourceCol = findColumn(ds, col.sourceId);
+    const sourceCol = findColumnInDataset(ds, col.sourceId);
     if (sourceCol.type !== ColumnType.NUMBER) {
       throw new DataSetError(
         "TYPE_MISMATCH",
@@ -666,7 +678,7 @@ function computeBuckets(ds: TypedDataSet, key: GroupingKey): Interval[] {
       return [...buildFixedCalendarIntervals(ds, key.sourceId, key.strategy.unit, calOpts)];
     }
     case "dynamicRange": {
-      const sourceCol = findColumn(ds, key.sourceId);
+      const sourceCol = findColumnInDataset(ds, key.sourceId);
       if (sourceCol.type === ColumnType.DATE) {
         const dateOpts: { preferredUnit?: DateIntervalType; firstMonthOfYear?: Month } = {};
         if (key.strategy.preferredUnit !== undefined) dateOpts.preferredUnit = key.strategy.preferredUnit;
@@ -749,7 +761,7 @@ function buildOutputColumns(
         });
         break;
       case "select": {
-        const sourceCol = findColumn(ds, rc.sourceId);
+        const sourceCol = findColumnInDataset(ds, rc.sourceId);
         columns.push({
           id: rc.columnId,
           name: sourceCol.name,
@@ -777,7 +789,7 @@ function inferAggregateColumnType(
       return ColumnType.NUMBER;
     case "MIN":
     case "MAX":
-      return findColumn(ds, rc.sourceId).type;
+      return findColumnInDataset(ds, rc.sourceId).type;
     case "JOIN":
       return ColumnType.TEXT;
   }
@@ -839,8 +851,9 @@ function sortBuckets(intervals: readonly Interval[], ascending: boolean): Interv
   return sorted;
 }
 
-function findColumn(ds: TypedDataSet, columnId: ColumnId): Column {
-  const col = ds.columns.find((c) => c.id === columnId);
+function findColumnInDataset(ds: TypedDataSet, columnId: ColumnId): Column {
+  const col = ds.columns.find((c) => c.id === columnId)
+    ?? ds.columns.find((c) => (c.id as string).toLowerCase() === (columnId as string).toLowerCase());
   if (col === undefined) {
     throw new DataSetError("UNKNOWN_COLUMN", `Column "${columnId}" not found`);
   }

@@ -397,12 +397,14 @@ describe("parsePage", () => {
       });
       const mainPage = root.slots!["content"]![0]!;
       expect(mainPage).toBeDefined();
-      // After nav resolution, slot-target is removed and tabs has slots
-      // The tabs component should have slots for SubPage1 and SubPage2
-      const tabsItem = mainPage.items!.find((item) => item.component.type === "tabs");
-      expect(tabsItem).toBeDefined();
-      expect(tabsItem!.component.slots!["SubPage1"]).toBeDefined();
-      expect(tabsItem!.component.slots!["SubPage2"]).toBeDefined();
+      // Nav component (tabs) keeps nav role, content goes to target location
+      const navItem = mainPage.items!.find((item) => item.component.type === "tabs" && !item.component.slots);
+      expect(navItem).toBeDefined();
+      // The slot-target is replaced with a tabs component containing page slots
+      const contentItem = mainPage.items!.find((item) => item.component.type === "tabs" && item.component.slots);
+      expect(contentItem).toBeDefined();
+      expect(contentItem!.component.slots!["SubPage1"]).toBeDefined();
+      expect(contentItem!.component.slots!["SubPage2"]).toBeDefined();
     });
 
     it("preserves grid item placement when slot-targets are interspersed", () => {
@@ -519,6 +521,119 @@ describe("parsePage", () => {
         ],
       });
       expect(root.slots!["content"]!.length).toBe(3);
+    });
+  });
+
+  describe("global.dataset merging", () => {
+    it("merges global.dataset into root datasets", () => {
+      const root = parsePage({
+        global: {
+          dataset: { uuid: "global-ds", content: "[1,2,3]" },
+        },
+        pages: [{ components: [{ html: "test" }] }],
+      });
+      const datasets = (root.props as any).datasets as unknown[];
+      expect(datasets).toBeDefined();
+      expect(datasets).toHaveLength(1);
+      expect((datasets[0] as any).uuid).toBe("global-ds");
+    });
+
+    it("merges global.dataset alongside existing datasets", () => {
+      const root = parsePage({
+        global: {
+          dataset: { uuid: "global-ds", content: "[1]" },
+        },
+        datasets: [{ uuid: "explicit-ds", content: "[2]" }],
+        pages: [{ components: [{ html: "test" }] }],
+      });
+      const datasets = (root.props as any).datasets as unknown[];
+      expect(datasets).toHaveLength(2);
+    });
+
+    it("passes global displayer defaults to component desugaring", () => {
+      const root = parsePage({
+        global: {
+          displayer: { chart: { resizable: true }, lookup: { uuid: "ds" } },
+        },
+        datasets: [{ uuid: "ds", content: '[[1,2]]' }],
+        pages: [{ components: [{ displayer: { type: "BARCHART" } }] }],
+      });
+      const page = root.slots!["content"]![0]!;
+      const chart = page.items![0]!.component;
+      expect(chart.props?.["resizable"]).toBe(true);
+      expect((chart.props as any).lookup.dataSetId).toBe("ds");
+    });
+  });
+
+  describe("row-level properties", () => {
+    it("wraps row items in a grid container when row has properties", () => {
+      const root = parsePage({
+        pages: [{
+          rows: [{
+            properties: { "margin-top": "20px", border: "solid 1px" },
+            columns: [{ span: 6, components: [{ html: "left" }] }, { span: 6, components: [{ html: "right" }] }],
+          }],
+        }],
+      });
+      const page = root.slots!["content"]![0]!;
+      expect(page.items).toHaveLength(1);
+      const wrapper = page.items![0]!.component;
+      expect(wrapper.type).toBe("grid");
+      expect(wrapper.style).toEqual({ "margin-top": "20px", border: "solid 1px" });
+      expect(wrapper.items).toHaveLength(2);
+    });
+
+    it("does not wrap when row has no properties", () => {
+      const root = parsePage({
+        pages: [{
+          rows: [{
+            columns: [{ span: 12, components: [{ html: "full" }] }],
+          }],
+        }],
+      });
+      const page = root.slots!["content"]![0]!;
+      expect(page.items![0]!.component.type).toBe("html");
+    });
+  });
+
+  describe("page-ref and panel deduplication", () => {
+    it("pages embedded via screen are excluded from top-level content", () => {
+      const root = parsePage({
+        pages: [
+          { name: "index", components: [{ screen: "Cards" }] },
+          { name: "Cards", components: [{ html: "card content" }] },
+          { name: "Other", components: [{ html: "other" }] },
+        ],
+      });
+      const pageNames = root.slots!["content"]!.map(p => (p.props as any).name);
+      expect(pageNames).toContain("index");
+      expect(pageNames).toContain("Other");
+      expect(pageNames).not.toContain("Cards");
+    });
+
+    it("pages embedded via panel are excluded from top-level content", () => {
+      const root = parsePage({
+        pages: [
+          { name: "index", components: [{ panel: "Charts" }] },
+          { name: "Charts", components: [{ html: "charts" }] },
+        ],
+      });
+      const pageNames = root.slots!["content"]!.map(p => (p.props as any).name);
+      expect(pageNames).toContain("index");
+      expect(pageNames).not.toContain("Charts");
+    });
+
+    it("panel reference resolves to page content with title", () => {
+      const root = parsePage({
+        pages: [
+          { name: "index", components: [{ panel: "Charts" }] },
+          { name: "Charts", components: [{ html: "charts content" }] },
+        ],
+      });
+      const indexPage = root.slots!["content"]![0]!;
+      const panelItem = indexPage.items![0]!.component;
+      expect(panelItem.type).toBe("panel");
+      expect(panelItem.props?.["title"]).toBe("Charts");
     });
   });
 });

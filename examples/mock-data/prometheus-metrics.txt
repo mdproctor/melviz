@@ -1,0 +1,37 @@
+# HELP http_requests_total Total HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",handler="/api/v1/query",code="200"} 1027
+http_requests_total{method="POST",handler="/api/v1/query",code="200"} 542
+http_requests_total{method="GET",handler="/metrics",code="200"} 8934
+http_requests_total{method="GET",handler="/api/v1/labels",code="200"} 256
+http_requests_total{method="GET",handler="/api/v1/query",code="400"} 12
+http_requests_total{method="GET",handler="/api/v1/query",code="500"} 3
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 42.58
+# HELP process_resident_memory_bytes Resident memory size in bytes
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 6.7174e+07
+# HELP process_virtual_memory_bytes Virtual memory size in bytes
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 7.83e+08
+# HELP go_goroutines Number of goroutines
+# TYPE go_goroutines gauge
+go_goroutines 42
+# HELP up Target up
+# TYPE up gauge
+up{job="prometheus",instance="localhost:9090"} 1
+# HELP jvm_memory_used_bytes JVM memory used
+# TYPE jvm_memory_used_bytes gauge
+jvm_memory_used_bytes{area="heap",id="G1 Eden Space"} 2.3456e+07
+jvm_memory_used_bytes{area="heap",id="G1 Old Gen"} 1.567e+08
+jvm_memory_used_bytes{area="nonheap",id="Metaspace"} 8.765e+07
+# HELP jvm_threads_live_threads Live threads
+# TYPE jvm_threads_live_threads gauge
+jvm_threads_live_threads 48
+# HELP system_cpu_usage System CPU usage
+# TYPE system_cpu_usage gauge
+system_cpu_usage 0.234
+# HELP process_uptime_seconds Process uptime
+# TYPE process_uptime_seconds gauge
+process_uptime_seconds 86423.5

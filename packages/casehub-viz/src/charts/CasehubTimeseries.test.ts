@@ -251,4 +251,38 @@ describe("CasehubTimeseries", () => {
       expect(option.tooltip).toMatchObject({ trigger: "axis", axisPointer: { type: "cross" } });
     });
   });
+
+  describe("time axis column detection", () => {
+    it("LABEL column 0 with 3+ columns → uses column 1 as time axis", () => {
+      const ds = makeDataSet(
+        [["category", "LABEL"], ["timestamp", "NUMBER"], ["value", "NUMBER"]],
+        [["test", 1718546000000, 23], ["test", 1718546001000, 97]],
+      );
+      el.props = { lookup: mockLookup("ts") };
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
+      const series = option.series as Record<string, unknown>[];
+
+      expect(series).toHaveLength(1);
+      expect(series[0]!.encode).toEqual({ x: 1, y: 2 });
+    });
+
+    it("NUMBER column 0 → uses column 0 as time axis (default)", () => {
+      const ds = makeDataSet(
+        [["timestamp", "NUMBER"], ["value", "NUMBER"]],
+        [[1718546000000, 23], [1718546001000, 97]],
+      );
+      el.props = { lookup: mockLookup("ts") };
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const option = mockChart.setOption.mock.calls[0]![0] as Record<string, unknown>;
+      const series = option.series as Record<string, unknown>[];
+
+      expect(series).toHaveLength(1);
+      expect(series[0]!.encode).toEqual({ x: 0, y: 1 });
+    });
+  });
 });

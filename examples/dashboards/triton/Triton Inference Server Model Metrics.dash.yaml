@@ -2,6 +2,9 @@ global:
   displayer:
     chart:
       resizable: true
+    columns:
+      - id: label
+        expression: value.replace(/[a-z_]+="|"/g, '').replace(/,$/,'')
 datasets:
   - uuid: metrics
     url: data/metrics

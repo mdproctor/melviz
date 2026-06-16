@@ -79,7 +79,7 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
   }
 
   // Prometheus: URL ending in /metrics OR text/plain with metric-shaped lines
-  if (def.url !== undefined && /\/metrics$/.test(def.url)) {
+  if (def.url !== undefined && /metrics$/.test(def.url)) {
     return parseMetrics(raw);
   }
   if (contentType?.startsWith("text/plain") && looksLikePrometheus(raw)) {
@@ -97,9 +97,11 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
     return csvToObjects(csv.headers, csv.rows);
   }
 
-  // Try JSON first
+  // Try JSON first (fix common hand-authored JSON quirks from YAML content)
   try {
-    return JSON.parse(raw) as unknown;
+    let cleaned = raw.replace(/,\s*([\]}])/g, "$1"); // trailing commas
+    cleaned = cleaned.replace(/'/g, '"'); // single quotes → double quotes
+    return JSON.parse(cleaned) as unknown;
   } catch {
     // Fallback: try CSV
     try {
@@ -184,7 +186,9 @@ async function navigateAndExtract(
   }
 
   // 2c. expression — custom JSONata
-  if (def.expression !== undefined) {
+  // Skip when content + accumulate + expression: expression is a refresh generator,
+  // not a transform. The content provides the seed; expression generates on refresh.
+  if (def.expression !== undefined && !(def.content !== undefined && def.accumulate)) {
     try {
       const compiled = compileOrCached(def.expression);
       current = await compiled.evaluate(current);
@@ -378,17 +382,28 @@ function tabulate(
     inferred = true;
   } else if (Array.isArray(data) && data.length === 0) {
     throw new DataSetError("EMPTY_RESULT", "Extraction produced no data (empty array)");
+  } else if (Array.isArray(data) && data.every(v => typeof v !== "object" || v === null)) {
+    // Shape D: flat array of primitives → single row with auto-generated columns
+    columns = data.map((_, i) => ({
+      id: `Column ${i}` as ColumnId,
+      name: `Column ${i}`,
+      type: inferColumnType([data[i]]),
+    }));
+    rows = [data.map(v => valueToString(v))];
+    inferred = true;
   } else {
     throw new DataSetError("EXTRACTION_ERROR", "Unrecognized data shape");
   }
 
   // Apply explicit column definitions if provided
-  if (explicitColumns !== undefined) {
-    columns = explicitColumns.map((c) => ({
-      id: c.id,
-      name: c.name ?? c.id,
-      type: c.type,
-    }));
+  if (explicitColumns !== undefined && explicitColumns.length > 0) {
+    columns = explicitColumns
+      .filter((c): c is ExternalColumnDef => c != null && typeof c === "object" && c.id !== undefined)
+      .map((c) => ({
+        id: c.id,
+        name: c.name ?? c.id,
+        type: typeof c.type === "string" ? mapTypeString(c.type) : (c.type ?? inferColumnType([])),
+      }));
     inferred = false;
   }
 
@@ -420,7 +435,25 @@ export async function extractDataSet(
   const extracted = await navigateAndExtract(parsed, def, presetRegistry);
 
   // Stage 3: Tabulate
-  const { dataset: wireDataSet, inferredColumns } = tabulate(extracted, def.columns);
+  let { dataset: wireDataSet, inferredColumns } = tabulate(extracted, def.columns);
+
+  // Prometheus column naming: when columns were inferred from Prometheus data
+  // and there are exactly 3 auto-named columns, use metric/labels/value.
+  // Detect by URL pattern OR by checking if the raw data was Prometheus-shaped.
+  const PROMETHEUS_COL_NAMES = ["metric", "labels", "value"];
+  const isPrometheus = (def.url !== undefined && /metrics$/.test(def.url))
+    || (typeof result.data === "string" && looksLikePrometheus(result.data as string));
+  if (
+    inferredColumns &&
+    wireDataSet.columns.length === 3 &&
+    wireDataSet.columns[0]?.id === "Column 0" &&
+    isPrometheus
+  ) {
+    const renamedCols = wireDataSet.columns.map((c, i) =>
+      i < 3 ? { ...c, id: PROMETHEUS_COL_NAMES[i]! as ColumnId, name: PROMETHEUS_COL_NAMES[i]! } : c,
+    );
+    wireDataSet = { ...wireDataSet, columns: renamedCols };
+  }
 
   // Stage 4: Convert to TypedDataSet
   const dataset = toTypedDataSet(wireDataSet);

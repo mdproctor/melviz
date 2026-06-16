@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { parseMetrics } from "./metrics-parser.js";
 
 describe("parseMetrics", () => {
-  it("parses simple metric line", () => {
+  it("parses simple metric line — preserves raw label string", () => {
     const result = parseMetrics('up{instance="localhost:9090"} 1');
     expect(result).toEqual([["up", 'instance="localhost:9090"', "1"]]);
   });
@@ -39,8 +39,13 @@ describe("parseMetrics", () => {
     expect(result).toHaveLength(2);
   });
 
-  it("handles metric with multiple labels", () => {
+  it("preserves raw label format with multiple labels", () => {
     const result = parseMetrics('http_requests{method="GET",code="200"} 42');
     expect(result[0]![1]).toBe('method="GET",code="200"');
+  });
+
+  it("preserves Micrometer-style labels for LIKE_TO filtering", () => {
+    const result = parseMetrics('jvm_memory_used_bytes{area="heap",id="G1 Eden Space",} 52428800');
+    expect(result[0]![1]).toBe('area="heap",id="G1 Eden Space",');
   });
 });
