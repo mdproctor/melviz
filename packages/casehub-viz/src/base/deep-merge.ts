@@ -9,6 +9,20 @@ export function deepMerge<T extends Record<string, unknown>>(
     const overrideVal = override[key];
 
     if (
+      Array.isArray(baseVal) &&
+      !Array.isArray(overrideVal) &&
+      overrideVal !== null &&
+      typeof overrideVal === "object"
+    ) {
+      // Object override applied to each element of array base
+      // (e.g., series: {barCategoryGap: "1%"} applied to series: [{type: "bar"}, ...])
+      result[key] = baseVal.map((item) => {
+        if (item !== null && typeof item === "object" && !Array.isArray(item)) {
+          return deepMerge(item as Record<string, unknown>, overrideVal as Record<string, unknown>);
+        }
+        return item;
+      });
+    } else if (
       Array.isArray(overrideVal) &&
       Array.isArray(baseVal)
     ) {

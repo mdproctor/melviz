@@ -39,6 +39,18 @@ describe("deepMerge", () => {
     )).toEqual({ series: [{ type: "bar", color: "red" }, { type: "line" }] });
   });
 
+  it("applies object override to each element of array base", () => {
+    expect(deepMerge(
+      { series: [{ type: "bar", encode: { x: 0 } }, { type: "bar", encode: { x: 1 } }] },
+      { series: { barCategoryGap: "1%" } },
+    )).toEqual({
+      series: [
+        { type: "bar", encode: { x: 0 }, barCategoryGap: "1%" },
+        { type: "bar", encode: { x: 1 }, barCategoryGap: "1%" },
+      ],
+    });
+  });
+
   it("replaces primitive array elements", () => {
     expect(deepMerge(
       { color: ["blue", "green"] },
