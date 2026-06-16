@@ -521,4 +521,45 @@ describe("parsePage", () => {
       expect(root.slots!["content"]!.length).toBe(3);
     });
   });
+
+  describe("global.dataset merging", () => {
+    it("merges global.dataset into root datasets", () => {
+      const root = parsePage({
+        global: {
+          dataset: { uuid: "global-ds", content: "[1,2,3]" },
+        },
+        pages: [{ components: [{ html: "test" }] }],
+      });
+      const datasets = (root.props as any).datasets as unknown[];
+      expect(datasets).toBeDefined();
+      expect(datasets).toHaveLength(1);
+      expect((datasets[0] as any).uuid).toBe("global-ds");
+    });
+
+    it("merges global.dataset alongside existing datasets", () => {
+      const root = parsePage({
+        global: {
+          dataset: { uuid: "global-ds", content: "[1]" },
+        },
+        datasets: [{ uuid: "explicit-ds", content: "[2]" }],
+        pages: [{ components: [{ html: "test" }] }],
+      });
+      const datasets = (root.props as any).datasets as unknown[];
+      expect(datasets).toHaveLength(2);
+    });
+
+    it("passes global displayer defaults to component desugaring", () => {
+      const root = parsePage({
+        global: {
+          displayer: { chart: { resizable: true }, lookup: { uuid: "ds" } },
+        },
+        datasets: [{ uuid: "ds", content: '[[1,2]]' }],
+        pages: [{ components: [{ displayer: { type: "BARCHART" } }] }],
+      });
+      const page = root.slots!["content"]![0]!;
+      const chart = page.items![0]!.component;
+      expect(chart.props?.["resizable"]).toBe(true);
+      expect((chart.props as any).lookup.dataSetId).toBe("ds");
+    });
+  });
 });

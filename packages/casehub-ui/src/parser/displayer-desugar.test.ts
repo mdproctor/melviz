@@ -409,4 +409,13 @@ describe("desugarDisplayer", () => {
     expect(lookup.dataSetId).toBe("hello");
     expect(lookup.operations).toEqual([]);
   });
+
+  it("captures inline dataSet from displayer", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      dataSet: '["Hello World", 42]',
+    });
+    expect(result.type).toBe("bar-chart");
+    expect((result.props as any).inlineDataSet).toBe('["Hello World", 42]');
+  });
 });

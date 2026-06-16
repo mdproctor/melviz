@@ -695,4 +695,91 @@ describe("parseLookup", () => {
 
     expect(() => parseLookup(raw)).toThrow(/requires 'unit'/);
   });
+
+  // --- Legacy DashBuilder field aliases ---
+
+  it("accepts dataSetUuid as alias for uuid", () => {
+    const lookup = parseLookup({ dataSetUuid: "legacy-ds" });
+    expect(lookup.dataSetId).toBe("legacy-ds");
+  });
+
+  it("accepts groupOps as alias for group", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      groupOps: [{
+        columnGroup: { source: "cat" },
+        functions: [{ source: "cat" }, { source: "val", function: "SUM" }],
+      }],
+    });
+    expect(lookup.operations).toHaveLength(1);
+    expect(lookup.operations[0].type).toBe("group");
+  });
+
+  it("accepts sortOps as alias for sort", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      sortOps: [{ column: "name", sortOrder: "DESCENDING" }],
+    });
+    expect(lookup.operations).toHaveLength(1);
+    expect(lookup.operations[0].type).toBe("sort");
+    expect((lookup.operations[0] as any).columns[0].order).toBe("DESCENDING");
+  });
+
+  it("accepts functions as alias for columns in group entries", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      group: [{
+        columnGroup: { source: "dept" },
+        functions: [{ source: "dept" }, { source: "sal", function: "AVERAGE" }],
+      }],
+    });
+    const groupOp = lookup.operations[0] as any;
+    expect(groupOp.columns).toHaveLength(2);
+    expect(groupOp.columns[0].kind).toBe("key");
+    expect(groupOp.columns[1].kind).toBe("aggregate");
+  });
+
+  it("accepts lowercase function names (count → COUNT)", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      group: [{
+        columnGroup: { source: "dept" },
+        functions: [{ source: "dept" }, { source: "val", function: "count" }],
+      }],
+    });
+    const groupOp = lookup.operations[0] as any;
+    expect(groupOp.columns[1].fn.fn).toBe("COUNT");
+  });
+
+  it("accepts groupStrategy as alias for strategy", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      group: [{
+        columnGroup: { source: "date", groupStrategy: "DYNAMIC" },
+        functions: [{ source: "date" }],
+      }],
+    });
+    const groupOp = lookup.operations[0] as any;
+    expect(groupOp.groupingKey.strategy.mode).toBe("dynamic");
+  });
+
+  it("accepts sortOrder as alias for order in sort columns", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      sort: [{ column: "name", sortOrder: "DESCENDING" }],
+    });
+    const sortOp = lookup.operations[0] as any;
+    expect(sortOp.columns[0].order).toBe("DESCENDING");
+  });
+
+  it("accepts column as alias for id in group result columns", () => {
+    const lookup = parseLookup({
+      uuid: "ds",
+      group: [{
+        functions: [{ source: "salary", function: "SUM", column: "Total" }],
+      }],
+    });
+    const groupOp = lookup.operations[0] as any;
+    expect(groupOp.columns[0].columnId).toBe("Total");
+  });
 });

@@ -425,4 +425,26 @@ describe("extractDataSet", () => {
     const col = result.dataset.columns.find((c) => c.id === "ts");
     expect(col!.type).toBe(ColumnType.DATE);
   });
+
+  // --- Trailing comma stripping ---
+
+  it("parses JSON with trailing commas in arrays", async () => {
+    const result = await extractDataSet(
+      fetchResult('[["Hello", 20],["World", 10],]'),
+      def(),
+      registry,
+    );
+    expect(result.dataset.rows).toHaveLength(2);
+    expect(result.dataset.columns).toHaveLength(2);
+  });
+
+  it("parses JSON with trailing commas in nested arrays", async () => {
+    const result = await extractDataSet(
+      fetchResult('[["A", 1, 2],["B", 3, 4],]'),
+      def(),
+      registry,
+    );
+    expect(result.dataset.columns[0]!.id).toBe("Column 0");
+    expect(result.dataset.columns[1]!.id).toBe("Column 1");
+  });
 });

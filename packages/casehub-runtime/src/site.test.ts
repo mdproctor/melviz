@@ -118,4 +118,32 @@ pages:
     expect(target.innerHTML).toContain("hello");
     site.dispose();
   });
+
+  it("data components are rendered and registered during initial render", async () => {
+    const yaml = `
+datasets:
+  - uuid: test
+    content: '[["A", 1], ["B", 2]]'
+pages:
+  - components:
+      - displayer:
+          type: BARCHART
+          lookup:
+            uuid: test
+            group:
+              - columnGroup:
+                  source: Column 0
+                functions:
+                  - source: Column 0
+                  - source: Column 1
+                    function: SUM
+`;
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    const site = await loadSite(target, yaml);
+    const barChart = target.querySelector("[data-component-type='bar-chart']");
+    expect(barChart).not.toBeNull();
+    site.dispose();
+    document.body.removeChild(target);
+  });
 });
