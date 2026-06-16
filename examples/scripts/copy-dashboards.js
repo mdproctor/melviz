@@ -44,4 +44,11 @@ if (fs.existsSync(srcDir)) {
   }
 }
 
+// Copy mock data
+const mockDataDir = path.join(__dirname, '../mock-data');
+if (fs.existsSync(mockDataDir)) {
+  console.log('Copying mock data...');
+  copyRecursive(mockDataDir, path.join(targetDir, 'mock-data'));
+}
+
 console.log('All files copied successfully');
