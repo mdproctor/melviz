@@ -247,6 +247,11 @@ export function desugarDisplayer(raw: Record<string, unknown>): Component {
     props.lookup = parseLookup(rawLookup);
   }
 
+  // Handle inline dataSet on displayer (legacy DashBuilder shorthand)
+  if (raw.dataSet !== undefined) {
+    props.inlineDataSet = raw.dataSet;
+  }
+
   return {
     type,
     ...(Object.keys(props).length > 0 ? { props } : {}),

@@ -97,9 +97,10 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
     return csvToObjects(csv.headers, csv.rows);
   }
 
-  // Try JSON first
+  // Try JSON first (strip trailing commas — common in hand-authored YAML content)
   try {
-    return JSON.parse(raw) as unknown;
+    const cleaned = raw.replace(/,\s*([\]}])/g, "$1");
+    return JSON.parse(cleaned) as unknown;
   } catch {
     // Fallback: try CSV
     try {
