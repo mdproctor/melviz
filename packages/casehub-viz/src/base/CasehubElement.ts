@@ -25,6 +25,8 @@ export abstract class CasehubElement<
     super();
     const shadow = this.attachShadow({ mode: "open" });
     this.container = document.createElement("div");
+    this.container.style.width = "100%";
+    this.container.style.minHeight = "300px";
     shadow.appendChild(this.container);
   }
 

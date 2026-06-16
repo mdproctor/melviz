@@ -35,10 +35,6 @@ export function createActivationCallback(
     if (DATA_COMPONENT_TYPES.has(component.type)) {
       const tagName = `casehub-${component.type}`;
       const vizEl = document.createElement(tagName) as CasehubElement<VizComponentProps>;
-      if (component.props) {
-        vizEl.props = component.props as VizComponentProps;
-      }
-      el.appendChild(vizEl);
 
       const lookup = (component.props as Record<string, unknown> | undefined)?.lookup as
         | DataSetLookup
@@ -52,6 +48,11 @@ export function createActivationCallback(
         ...(lookup !== undefined && { originalLookup: lookup }),
       };
       registry.set(componentId, entry);
+
+      if (component.props) {
+        vizEl.props = component.props as VizComponentProps;
+      }
+      el.appendChild(vizEl);
       return;
     }
 

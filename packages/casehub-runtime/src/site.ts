@@ -63,9 +63,6 @@ export async function loadSite(
   let _navigating = false;
   let currentPage = "";
 
-  const onNode = createActivationCallback(registry, pagePathMap);
-  renderComponent(target, root, { permissions, onNode });
-
   function findComponentId(e: Event): string | undefined {
     const el = (e.target as HTMLElement).closest("[data-component-id]") as HTMLElement | null;
     return el?.dataset.componentId;
@@ -79,7 +76,7 @@ export async function loadSite(
     history[method](null, "", serializeToUrl(link));
   }
 
-  // --- Event delegation ---
+  // --- Event delegation (BEFORE renderComponent — connectedCallback fires during render) ---
 
   target.addEventListener("casehub-data-request", ((e: Event) => {
     const detail = (e as CustomEvent).detail;
@@ -195,6 +192,11 @@ export async function loadSite(
       (entry.vizElement as unknown as VizTarget).error = err instanceof Error ? err.message : String(err);
     }
   }) as EventListener, { signal: abortController.signal });
+
+  // --- Render (AFTER event listeners — connectedCallback dispatches data-request during render) ---
+
+  const onNode = createActivationCallback(registry, pagePathMap);
+  renderComponent(target, root, { permissions, onNode });
 
   // popstate — back/forward browser navigation
   if (typeof window !== "undefined") {

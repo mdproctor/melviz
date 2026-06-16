@@ -490,11 +490,9 @@ describe("parseLookup", () => {
   it("parses sort with default ASCENDING order", () => {
     const raw = {
       uuid: "dataset-1",
-      sort: {
-        columns: [
-          { column: "name", order: "ASCENDING" },
-        ],
-      },
+      sort: [
+        { column: "name", order: "ASCENDING" },
+      ],
     };
 
     const lookup = parseLookup(raw);
@@ -511,11 +509,9 @@ describe("parseLookup", () => {
   it("parses sort with DESCENDING order", () => {
     const raw = {
       uuid: "dataset-1",
-      sort: {
-        columns: [
-          { column: "age", order: "DESCENDING" },
-        ],
-      },
+      sort: [
+        { column: "age", order: "DESCENDING" },
+      ],
     };
 
     const lookup = parseLookup(raw);
@@ -531,12 +527,10 @@ describe("parseLookup", () => {
   it("parses sort with multiple columns", () => {
     const raw = {
       uuid: "dataset-1",
-      sort: {
-        columns: [
-          { column: "department", order: "ASCENDING" },
-          { column: "salary", order: "DESCENDING" },
-        ],
-      },
+      sort: [
+        { column: "department", order: "ASCENDING" },
+        { column: "salary", order: "DESCENDING" },
+      ],
     };
 
     const lookup = parseLookup(raw);
@@ -568,11 +562,9 @@ describe("parseLookup", () => {
           ],
         },
       ],
-      sort: {
-        columns: [
-          { column: "salary", order: "DESCENDING" },
-        ],
-      },
+      sort: [
+        { column: "salary", order: "DESCENDING" },
+      ],
     };
 
     const lookup = parseLookup(raw);
@@ -583,14 +575,16 @@ describe("parseLookup", () => {
     expect(lookup.operations[2]?.type).toBe("sort");
   });
 
-  it("throws ZodError for missing uuid", () => {
+  it("returns empty dataSetId when uuid is missing (inherited from global defaults)", () => {
     const raw = {
       filter: [
         { column: "age", function: "GREATER_THAN", args: ["18"] },
       ],
     };
 
-    expect(() => parseLookup(raw)).toThrow(ZodError);
+    const lookup = parseLookup(raw);
+    expect(lookup.dataSetId).toBe("");
+    expect(lookup.operations).toHaveLength(1);
   });
 
   it("throws ZodError for missing column in filter", () => {

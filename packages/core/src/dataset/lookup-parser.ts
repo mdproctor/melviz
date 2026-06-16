@@ -75,7 +75,8 @@ const dayOfWeekSchema = z.enum([
 const columnGroupSchema = z.object({
   source: z.string(),
   id: z.string().optional(),
-  strategy: groupStrategySchema,
+  strategy: groupStrategySchema.optional(),
+  groupStrategy: z.string().optional(),
   unit: fixedCalendarUnitSchema.optional(),
   preferredUnit: dateIntervalTypeSchema.optional(),
   maxIntervals: z.number().default(15),
@@ -83,39 +84,64 @@ const columnGroupSchema = z.object({
   ascendingOrder: z.boolean().default(true),
   firstMonthOfYear: monthSchema.optional(),
   firstDayOfWeek: dayOfWeekSchema.optional(),
-});
+}).transform((cg) => ({
+  ...cg,
+  strategy: cg.strategy ?? cg.groupStrategy?.toLowerCase() ?? "distinct",
+}));
 
-const columnSchema = z.object({
+const columnSchemaRaw = z.object({
   source: z.string(),
   id: z.string().optional(),
-  function: aggregationFnSchema.optional(),
+  column: z.string().optional(),
+  function: z.string().optional(),
   separator: z.string().optional(),
 });
 
-const groupEntrySchema = z.object({
+const columnSchema = columnSchemaRaw.transform((col) => ({
+  source: col.source,
+  id: col.id ?? col.column,
+  function: col.function ? col.function.toUpperCase() as z.infer<typeof aggregationFnSchema> : undefined,
+  separator: col.separator,
+}));
+
+const groupEntrySchemaRaw = z.object({
   columnGroup: columnGroupSchema.optional(),
-  columns: z.array(columnSchema),
+  columns: z.array(columnSchema).optional(),
+  functions: z.array(columnSchema).optional(),
   selectedIntervals: z.array(z.string()).optional(),
   join: z.boolean().optional(),
 });
+
+const groupEntrySchema = groupEntrySchemaRaw.transform((entry) => ({
+  ...entry,
+  columns: entry.columns ?? entry.functions ?? [],
+}));
 
 const sortOrderSchema = z.enum(["ASCENDING", "DESCENDING"]).default("ASCENDING");
 
 const sortColumnSchema = z.object({
   column: z.string(),
-  order: sortOrderSchema,
-});
-
-const sortEntrySchema = z.object({
-  columns: z.array(sortColumnSchema),
-});
+  order: sortOrderSchema.optional(),
+  sortOrder: sortOrderSchema.optional(),
+}).transform((col) => ({
+  column: col.column,
+  order: col.order ?? col.sortOrder ?? ("ASCENDING" as const),
+}));
 
 const lookupSchema = z.object({
-  uuid: z.string(),
+  uuid: z.string().optional(),
+  dataSetUuid: z.string().optional(),
   filter: z.array(filterNodeSchema).optional(),
   group: z.array(groupEntrySchema).optional(),
-  sort: sortEntrySchema.optional(),
-});
+  groupOps: z.array(groupEntrySchema).optional(),
+  sort: z.array(sortColumnSchema).optional(),
+  sortOps: z.array(sortColumnSchema).optional(),
+}).transform((parsed) => ({
+  uuid: parsed.uuid ?? parsed.dataSetUuid ?? "",
+  filter: parsed.filter,
+  group: parsed.group ?? parsed.groupOps,
+  sort: parsed.sort ?? parsed.sortOps,
+}));
 
 export function parseLookup(raw: unknown): DataSetLookup {
   const parsed = lookupSchema.parse(raw);
@@ -139,8 +165,8 @@ export function parseLookup(raw: unknown): DataSetLookup {
   }
 
   // Parse sort operation
-  if (parsed.sort) {
-    const columns: SortColumn[] = parsed.sort.columns.map(col => ({
+  if (parsed.sort && parsed.sort.length > 0) {
+    const columns: SortColumn[] = parsed.sort.map(col => ({
       columnId: col.column as ColumnId,
       order: col.order,
     }));
