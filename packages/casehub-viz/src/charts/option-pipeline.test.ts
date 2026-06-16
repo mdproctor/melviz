@@ -364,4 +364,62 @@ describe("applyChartSettings", () => {
     expect(result.xAxis).toEqual({ name: "X" });
     expect(result.yAxis).toEqual({ name: "Y" });
   });
+
+  it("applies xAxis labelAngle as axisLabel.rotate", () => {
+    const option = {};
+    const props = { xAxis: { labelAngle: 30 } };
+    const result = applyChartSettings(option, props);
+    expect(result.xAxis).toEqual({ axisLabel: { rotate: 30 } });
+  });
+
+  it("applies yAxis labelAngle as axisLabel.rotate", () => {
+    const option = {};
+    const props = { yAxis: { labelAngle: -10 } };
+    const result = applyChartSettings(option, props);
+    expect(result.yAxis).toEqual({ axisLabel: { rotate: -10 } });
+  });
+
+  it("merges labelAngle with existing axisLabel settings", () => {
+    const option = {};
+    const props = { xAxis: { showLabels: true, labelAngle: 30 } };
+    const result = applyChartSettings(option, props);
+    expect(result.xAxis).toEqual({ axisLabel: { show: true, rotate: 30 } });
+  });
+
+  it("applies grid.x false as xAxis.splitLine.show false", () => {
+    const option = {};
+    const props = { grid: { x: false } };
+    const result = applyChartSettings(option, props);
+    expect(result.xAxis).toEqual({ splitLine: { show: false } });
+  });
+
+  it("applies grid.y false as yAxis.splitLine.show false", () => {
+    const option = {};
+    const props = { grid: { y: false } };
+    const result = applyChartSettings(option, props);
+    expect(result.yAxis).toEqual({ splitLine: { show: false } });
+  });
+
+  it("applies grid visibility with existing axis settings", () => {
+    const option = {};
+    const props = {
+      xAxis: { title: "Month", labelAngle: 30 },
+      grid: { x: false, y: false },
+    };
+    const result = applyChartSettings(option, props);
+    expect(result.xAxis).toEqual({
+      name: "Month",
+      axisLabel: { rotate: 30 },
+      splitLine: { show: false },
+    });
+    expect(result.yAxis).toEqual({ splitLine: { show: false } });
+  });
+
+  it("skips grid settings when cartesianAxes is false", () => {
+    const option = {};
+    const props = { grid: { x: false, y: false } };
+    const result = applyChartSettings(option, props, { cartesianAxes: false });
+    expect(result.xAxis).toBeUndefined();
+    expect(result.yAxis).toBeUndefined();
+  });
 });

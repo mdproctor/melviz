@@ -92,6 +92,11 @@ export function applyChartSettings(
       xAxis.axisLabel = { show: props.xAxis.showLabels };
     }
 
+    if (props.xAxis.labelAngle != null) {
+      const existing = (xAxis.axisLabel as Record<string, unknown>) || {};
+      xAxis.axisLabel = { ...existing, rotate: props.xAxis.labelAngle };
+    }
+
     option.xAxis = xAxis;
   }
 
@@ -105,6 +110,11 @@ export function applyChartSettings(
 
     if (props.yAxis.showLabels !== undefined) {
       yAxis.axisLabel = { show: props.yAxis.showLabels };
+    }
+
+    if (props.yAxis.labelAngle != null) {
+      const existing = (yAxis.axisLabel as Record<string, unknown>) || {};
+      yAxis.axisLabel = { ...existing, rotate: props.yAxis.labelAngle };
     }
 
     option.yAxis = yAxis;
@@ -131,6 +141,22 @@ export function applyChartSettings(
     }
 
     option.grid = grid;
+  }
+
+  // Grid line visibility (splitLine controls gridlines)
+  if (withAxes && props.grid !== undefined) {
+    if (props.grid.x === false) {
+      const xAxis: Record<string, unknown> = { ...((option.xAxis as Record<string, unknown>) || {}) };
+      const existing = (xAxis.splitLine as Record<string, unknown>) || {};
+      xAxis.splitLine = { ...existing, show: false };
+      option.xAxis = xAxis;
+    }
+    if (props.grid.y === false) {
+      const yAxis: Record<string, unknown> = { ...((option.yAxis as Record<string, unknown>) || {}) };
+      const existing = (yAxis.splitLine as Record<string, unknown>) || {};
+      yAxis.splitLine = { ...existing, show: false };
+      option.yAxis = yAxis;
+    }
   }
 
   // Zoom
