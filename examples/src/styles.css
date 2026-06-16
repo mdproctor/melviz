@@ -295,9 +295,10 @@ body {
     color: #667eea;
 }
 
-#dashboard-iframe {
+#dashboard-target {
     flex: 1;
-    border: none;
+    overflow: auto;
+    padding: 16px;
     min-width: 0;
     min-height: 0;
 }

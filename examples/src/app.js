@@ -1,13 +1,14 @@
 // Melviz Examples Gallery Application
 let samplesData = null;
 let currentDashboard = null;
+let currentSite = null;
 
 // DOM Elements
 const categoriesNav = document.getElementById('categories-nav');
 const searchInput = document.getElementById('search');
 const welcomeScreen = document.getElementById('welcome-screen');
 const dashboardContainer = document.getElementById('dashboard-container');
-const dashboardIframe = document.getElementById('dashboard-iframe');
+const dashboardTarget = document.getElementById('dashboard-target');
 const currentDashboardName = document.getElementById('current-dashboard-name');
 const dashboardCount = document.getElementById('dashboard-count');
 const statsContainer = document.getElementById('stats');
@@ -127,8 +128,8 @@ function loadDashboard(dashboard) {
     dashboardContainer.style.display = 'flex';
     currentDashboardName.textContent = dashboard.name;
 
-    // Load dashboard in iframe
-    loadDashboardInIframe(dashboard.path);
+    // Load dashboard in target div
+    loadDashboardInTarget(dashboard.path);
 
     // Load dashboard source code
     loadDashboardSourceCode(dashboard.path);
@@ -148,10 +149,30 @@ function loadDashboardFromHash(category, dashboardPath) {
     }
 }
 
-// Load dashboard in iframe using Melviz
-function loadDashboardInIframe(dashboardPath) {
-    const dashboardUrl = `${window.location.origin}/dashboards/${dashboardPath}`;
-    dashboardIframe.src = "melviz-webapp?import=" + encodeURI(dashboardUrl);
+// Load dashboard in target div using casehub loadSite
+async function loadDashboardInTarget(dashboardPath) {
+    try {
+        const response = await fetch(`dashboards/${dashboardPath}`);
+        const yamlText = await response.text();
+
+        if (currentSite) {
+            currentSite.dispose();
+            currentSite = null;
+        }
+
+        dashboardTarget.innerHTML = "";
+        dashboardTarget.className = "";
+
+        currentSite = await window.casehub.loadSite(dashboardTarget, yamlText);
+    } catch (error) {
+        console.error('Error loading dashboard:', error);
+        dashboardTarget.innerHTML = `
+            <div style="padding: 24px; color: #d32f2f; background: #fce4ec; border-radius: 8px; margin: 16px;">
+                <strong>Error loading dashboard</strong>
+                <p style="margin-top: 8px; font-family: monospace; font-size: 13px;">${error.message || error}</p>
+            </div>
+        `;
+    }
 }
 
 // Load and display dashboard source code
