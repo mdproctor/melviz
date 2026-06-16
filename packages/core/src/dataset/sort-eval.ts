@@ -6,14 +6,9 @@ import { DataSetError } from "./errors.js";
 export function applySort(ds: TypedDataSet, op: SortOp): TypedDataSet {
   // 1. Validate all referenced columns exist
   const columnMap = new Map(ds.columns.map((c) => [c.id, c]));
-  for (const sortCol of op.columns) {
-    const col = columnMap.get(sortCol.columnId);
-    if (!col) {
-      throw new DataSetError(
-        "UNKNOWN_COLUMN",
-        `Sort references unknown column: ${sortCol.columnId}`
-      );
-    }
+  const validColumns = op.columns.filter((sortCol) => columnMap.has(sortCol.columnId));
+  if (validColumns.length === 0) {
+    return ds;
   }
 
   // 2. Empty dataset or single row - return as is
@@ -26,7 +21,7 @@ export function applySort(ds: TypedDataSet, op: SortOp): TypedDataSet {
 
   // 4. Create comparison function
   const compare = (a: TypedRow, b: TypedRow): number => {
-    for (const sortCol of op.columns) {
+    for (const sortCol of validColumns) {
       const colIndex = colIndexMap.get(sortCol.columnId)!;
       const col = columnMap.get(sortCol.columnId)!;
       const aCell = a.cells[colIndex]!;
