@@ -39,7 +39,7 @@ export async function loadSite(
   source: string | Component,
   options?: SiteOptions,
 ): Promise<LiveSite> {
-  const root = typeof source === "string" ? parsePage(yamlLoad(source) as Record<string, unknown>) : source;
+  const root = typeof source === "string" ? parsePage(yamlLoad(source)) : source;
   const permissions = options?.permissions ?? ALLOW_ALL;
 
   const pagePathMap = buildPagePathMap(root);
