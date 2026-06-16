@@ -79,11 +79,11 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
   }
 
   // Prometheus: URL ending in /metrics OR text/plain with metric-shaped lines
-  if (def.url !== undefined && /(\/metrics$|^metrics$)/.test(def.url)) {
-    return metricsToObjects(parseMetrics(raw));
+  if (def.url !== undefined && /metrics$/.test(def.url)) {
+    return parseMetrics(raw);
   }
   if (contentType?.startsWith("text/plain") && looksLikePrometheus(raw)) {
-    return metricsToObjects(parseMetrics(raw));
+    return parseMetrics(raw);
   }
 
   // URL file extension hint (tiebreaker when content type is missing/generic)
@@ -115,14 +115,6 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
       throw new DataSetError("PARSE_FAILED", "Failed to parse input as JSON or CSV", e);
     }
   }
-}
-
-function metricsToObjects(rows: string[][]): Record<string, string>[] {
-  return rows.map(([metric, labels, value]) => ({
-    metric: metric ?? "",
-    labels: labels ?? "",
-    value: value ?? "",
-  }));
 }
 
 /** Convert CSV parse result into array of objects (Shape B). */
@@ -441,7 +433,23 @@ export async function extractDataSet(
   const extracted = await navigateAndExtract(parsed, def, presetRegistry);
 
   // Stage 3: Tabulate
-  const { dataset: wireDataSet, inferredColumns } = tabulate(extracted, def.columns);
+  let { dataset: wireDataSet, inferredColumns } = tabulate(extracted, def.columns);
+
+  // Prometheus column naming: when columns were inferred from a metrics URL
+  // and there are exactly 3 auto-named columns, use metric/labels/value
+  const PROMETHEUS_COL_NAMES = ["metric", "labels", "value"];
+  if (
+    inferredColumns &&
+    wireDataSet.columns.length === 3 &&
+    wireDataSet.columns[0]?.id === "Column 0" &&
+    def.url !== undefined &&
+    /metrics$/.test(def.url)
+  ) {
+    const renamedCols = wireDataSet.columns.map((c, i) =>
+      i < 3 ? { ...c, id: PROMETHEUS_COL_NAMES[i]! as ColumnId, name: PROMETHEUS_COL_NAMES[i]! } : c,
+    );
+    wireDataSet = { ...wireDataSet, columns: renamedCols };
+  }
 
   // Stage 4: Convert to TypedDataSet
   const dataset = toTypedDataSet(wireDataSet);
