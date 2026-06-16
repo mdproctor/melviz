@@ -97,6 +97,27 @@ describe("JSON parsing resilience for inline content", () => {
     ).rejects.toThrow("PARSE_FAILED");
   });
 
+  it("converts single quotes to double quotes for JSON parsing", async () => {
+    // Flat array ['ABC', 1] is not a tabular shape — extraction fails.
+    // But the JSON parsing itself succeeds (single quotes are converted).
+    // Nested arrays with single quotes work:
+    const result = await extractDataSet(
+      { data: "[['ABC', 1], ['DEF', 2]]" },
+      emptyDef,
+      presets,
+    );
+    expect(result.dataset.rows).toHaveLength(2);
+  });
+
+  it("handles single-quoted strings in nested arrays", async () => {
+    const result = await extractDataSet(
+      { data: "[['Hello', 20], ['World', 10]]" },
+      emptyDef,
+      presets,
+    );
+    expect(result.dataset.rows).toHaveLength(2);
+  });
+
   it("throws on whitespace-only input", async () => {
     await expect(
       extractDataSet({ data: "   \n  " }, emptyDef, presets),

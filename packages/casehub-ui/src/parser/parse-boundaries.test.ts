@@ -152,6 +152,36 @@ describe("global defaults propagation", () => {
   });
 });
 
+describe("nested rows — ID uniqueness", () => {
+  it("components in nested rows get distinct IDs from outer components", () => {
+    const root = parsePage({
+      datasets: [{ uuid: "ds", content: "[[1,2]]" }],
+      pages: [{
+        rows: [{
+          columns: [
+            {
+              span: 6,
+              components: [{ displayer: { type: "BARCHART", lookup: { uuid: "ds" } } }],
+            },
+            {
+              span: 6,
+              rows: [{
+                columns: [{
+                  components: [{ displayer: { type: "PIECHART", lookup: { uuid: "ds" } } }],
+                }],
+              }],
+            },
+          ],
+        }],
+      }],
+    });
+    const page = root.slots!["content"]![0]!;
+    const ids = page.items!.map(item => item.component.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+});
+
 describe("inline content edge cases", () => {
   it("global.dataset with inline content is added to datasets array", () => {
     const root = parsePage({

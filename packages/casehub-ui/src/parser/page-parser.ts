@@ -208,12 +208,13 @@ function parsePageContent(
             }
           }
         } else if (colRows) {
-          // Nested rows inside a column — recurse by treating as a sub-page
+          // Nested rows inside a column — recurse with a distinct sub-page index
+          // to avoid ID collisions (e.g. grid_0_0_0 at two different nesting levels)
+          const subPageIndex = pageIndex * 100 + x * 10 + y;
           const subPage = { rows: colRows } as Record<string, unknown>;
-          const subResult = parsePageContent(subPage, pageIndex, displayerDefaults);
+          const subResult = parsePageContent(subPage, subPageIndex, displayerDefaults);
           if ("items" in subResult && subResult.items) {
             for (const subItem of subResult.items) {
-              // Offset the nested items into this column's position
               items.push({
                 placement: {
                   x: x + subItem.placement.x,
