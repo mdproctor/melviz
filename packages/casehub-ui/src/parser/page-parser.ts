@@ -55,7 +55,8 @@ export function parsePage(raw: unknown): Component {
         : undefined;
 
     // Parse content — either "components" shorthand or "rows" explicit layout
-    const layout = parsePageContent(p, pageIndex);
+    const displayerDefaults = (global?.["displayer"] ?? global?.["settings"]) as Record<string, unknown> | undefined;
+    const layout = parsePageContent(p, pageIndex, displayerDefaults);
 
     return {
       type: "page" as const,
@@ -142,13 +143,14 @@ export function parsePage(raw: unknown): Component {
 function parsePageContent(
   pageRaw: Record<string, unknown>,
   pageIndex: number,
+  displayerDefaults?: Record<string, unknown>,
 ): { items?: readonly GridItem[] } | { slots?: Readonly<Record<string, readonly Component[]>> } {
   const componentsRaw = pageRaw["components"] as unknown[] | undefined;
   const rowsRaw = pageRaw["rows"] as unknown[] | undefined;
 
   if (componentsRaw) {
     const items: GridItem[] = componentsRaw.map((compRaw, i) => {
-      const component = desugarComponent(compRaw as Record<string, unknown>);
+      const component = desugarComponent(compRaw as Record<string, unknown>, displayerDefaults);
       return {
         placement: { x: 0, y: i, w: 12, h: 1 },
         component: assignIdIfMissing(component, `grid_${pageIndex}_0_${i}`),
@@ -179,7 +181,7 @@ function parsePageContent(
 
         if (colComponents) {
           for (let ci = 0; ci < colComponents.length; ci++) {
-            const component = desugarComponent(colComponents[ci] as Record<string, unknown>);
+            const component = desugarComponent(colComponents[ci] as Record<string, unknown>, displayerDefaults);
             const placed: GridItem = {
               placement: { x, y: y + ci, w: span, h: 1 },
               component: assignIdIfMissing(component, `grid_${pageIndex}_${x}_${y + ci}`),
@@ -202,7 +204,7 @@ function parsePageContent(
         } else if (colRows) {
           // Nested rows inside a column — recurse by treating as a sub-page
           const subPage = { rows: colRows } as Record<string, unknown>;
-          const subResult = parsePageContent(subPage, pageIndex);
+          const subResult = parsePageContent(subPage, pageIndex, displayerDefaults);
           if ("items" in subResult && subResult.items) {
             for (const subItem of subResult.items) {
               // Offset the nested items into this column's position

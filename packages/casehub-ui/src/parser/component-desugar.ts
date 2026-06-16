@@ -27,7 +27,7 @@ const NAV_TYPE_MAP: Record<string, string> = {
  * Some component types are transient (page-ref, slot-target) and will be
  * resolved by nav-desugar in a later step.
  */
-export function desugarComponent(raw: Record<string, unknown>): Component {
+export function desugarComponent(raw: Record<string, unknown>, displayerDefaults?: Record<string, unknown>): Component {
   // Content shorthands (check first, before type key)
   if ("html" in raw) {
     const style = extractStyle(raw.properties);
@@ -83,7 +83,10 @@ export function desugarComponent(raw: Record<string, unknown>): Component {
 
   // Displayer component
   if ("displayer" in raw && typeof raw.displayer === "object" && raw.displayer !== null) {
-    const component = desugarDisplayer(raw.displayer as Record<string, unknown>);
+    const merged = displayerDefaults
+      ? deepMergeRaw(displayerDefaults, raw.displayer as Record<string, unknown>)
+      : (raw.displayer as Record<string, unknown>);
+    const component = desugarDisplayer(merged);
     // Attach style from outer properties
     const style = extractStyle(raw.properties);
     return {
@@ -183,4 +186,29 @@ function extractStyle(
   }
 
   return Object.keys(style).length > 0 ? style : undefined;
+}
+
+function deepMergeRaw(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      result[key] !== null &&
+      typeof result[key] === "object" &&
+      !Array.isArray(result[key])
+    ) {
+      result[key] = deepMergeRaw(
+        result[key] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }

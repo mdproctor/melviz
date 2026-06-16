@@ -55,7 +55,7 @@ export async function loadSite(
   const pipeline = createDataPipeline(manager, dataSetScope, registry, filterState);
   pipeline.setResolverCtx({
     manager,
-    providerFactory: createDataProviderFactory(options?.fetch),
+    providerFactory: createDataProviderFactory(options?.fetch ?? globalThis.fetch?.bind(globalThis)),
     providerConfig: options?.providerConfig ?? {},
     presetRegistry: createPresetRegistry(),
   });
