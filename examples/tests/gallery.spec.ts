@@ -210,12 +210,10 @@ test.describe("Global Lookup Operation", () => {
 });
 
 test.describe("Column with rows", () => {
-  test("renders meter chart", async ({ page }) => {
+  test("renders all three chart types from nested layout", async ({ page }) => {
     await openDashboard(page, "Column with rows");
-    const statuses = await getComponentStatuses(page);
-
-    const meter = statuses.find(s => s.type === "meter");
-    expect(meter?.status).toBe("CHART_OK");
+    const charts = await countRenderedCharts(page);
+    expect(charts).toBe(3); // bar-chart, pie-chart, meter
   });
 });
 
