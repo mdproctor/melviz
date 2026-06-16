@@ -288,4 +288,61 @@ describe("desugarDisplayer", () => {
     });
     expect(result.props?.["subtype"]).toBe("custom_type");
   });
+
+  it("extracts top-level axis.x settings", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      axis: { x: { labels_angle: 30, title: "Month" } },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).xAxis).toEqual({
+      labelAngle: 30,
+      title: "Month",
+    });
+  });
+
+  it("extracts top-level axis.y settings", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      axis: { y: { title: "Revenue", labels_show: false } },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).yAxis).toEqual({
+      title: "Revenue",
+      showLabels: false,
+    });
+  });
+
+  it("extracts axis from chart.axis (nested)", () => {
+    const result = desugarDisplayer({
+      type: "LINECHART",
+      chart: { resizable: true, axis: { x: { labels_angle: 10 } } },
+      lookup: { uuid: "data" },
+    });
+    expect(result.props?.["resizable"]).toBe(true);
+    expect((result.props as any).xAxis).toEqual({ labelAngle: 10 });
+  });
+
+  it("prefers top-level axis over chart.axis", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      axis: { x: { labels_angle: 30 } },
+      chart: { axis: { x: { labels_angle: 10 } } },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).xAxis).toEqual({ labelAngle: 30 });
+  });
+
+  it("extracts both x and y axis simultaneously", () => {
+    const result = desugarDisplayer({
+      type: "BARCHART",
+      axis: {
+        x: { labels_angle: 30, title: "X" },
+        y: { title: "Y", labels_show: false },
+      },
+      lookup: { uuid: "data" },
+    });
+    expect((result.props as any).xAxis).toEqual({ labelAngle: 30, title: "X" });
+    expect((result.props as any).yAxis).toEqual({ title: "Y", showLabels: false });
+  });
 });

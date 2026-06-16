@@ -116,6 +116,29 @@ export function desugarDisplayer(raw: Record<string, unknown>): Component {
     }
   }
 
+  // Extract axis settings (top-level axis takes precedence over chart.axis)
+  const chartObj = raw.chart as Record<string, unknown> | undefined;
+  const axisSource = (raw.axis ?? (chartObj && typeof chartObj === "object" ? chartObj.axis : undefined)) as Record<string, unknown> | undefined;
+  if (axisSource && typeof axisSource === "object") {
+    const xRaw = axisSource.x as Record<string, unknown> | undefined;
+    if (xRaw && typeof xRaw === "object") {
+      const xAxis: Record<string, unknown> = {};
+      if (xRaw.title != null) xAxis.title = xRaw.title;
+      if (xRaw.labels_show != null) xAxis.showLabels = xRaw.labels_show;
+      if (xRaw.labels_angle != null) xAxis.labelAngle = xRaw.labels_angle;
+      if (Object.keys(xAxis).length > 0) props.xAxis = xAxis;
+    }
+
+    const yRaw = axisSource.y as Record<string, unknown> | undefined;
+    if (yRaw && typeof yRaw === "object") {
+      const yAxis: Record<string, unknown> = {};
+      if (yRaw.title != null) yAxis.title = yRaw.title;
+      if (yRaw.labels_show != null) yAxis.showLabels = yRaw.labels_show;
+      if (yRaw.labels_angle != null) yAxis.labelAngle = yRaw.labels_angle;
+      if (Object.keys(yAxis).length > 0) props.yAxis = yAxis;
+    }
+  }
+
   // Extract external settings (for iframe-plugin)
   if (raw.external && typeof raw.external === "object") {
     const external = raw.external as Record<string, unknown>;
