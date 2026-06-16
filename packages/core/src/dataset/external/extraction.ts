@@ -435,15 +435,17 @@ export async function extractDataSet(
   // Stage 3: Tabulate
   let { dataset: wireDataSet, inferredColumns } = tabulate(extracted, def.columns);
 
-  // Prometheus column naming: when columns were inferred from a metrics URL
-  // and there are exactly 3 auto-named columns, use metric/labels/value
+  // Prometheus column naming: when columns were inferred from Prometheus data
+  // and there are exactly 3 auto-named columns, use metric/labels/value.
+  // Detect by URL pattern OR by checking if the raw data was Prometheus-shaped.
   const PROMETHEUS_COL_NAMES = ["metric", "labels", "value"];
+  const isPrometheus = (def.url !== undefined && /metrics$/.test(def.url))
+    || (typeof result.data === "string" && looksLikePrometheus(result.data as string));
   if (
     inferredColumns &&
     wireDataSet.columns.length === 3 &&
     wireDataSet.columns[0]?.id === "Column 0" &&
-    def.url !== undefined &&
-    /metrics$/.test(def.url)
+    isPrometheus
   ) {
     const renamedCols = wireDataSet.columns.map((c, i) =>
       i < 3 ? { ...c, id: PROMETHEUS_COL_NAMES[i]! as ColumnId, name: PROMETHEUS_COL_NAMES[i]! } : c,
