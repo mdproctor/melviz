@@ -183,7 +183,7 @@ export async function loadSite(
       ?.filter as { group?: string } | undefined;
     const filterOps = getActiveFilterOps(filterState, entry.pagePath, filterGroup?.group);
     const existingOps = entry.originalLookup.operations.filter((op: DataSetOp) => op.type !== "sort");
-    const sortOp: DataSetOp = { type: "sort" as const, columnId, order };
+    const sortOp: DataSetOp = { type: "sort" as const, columns: [{ columnId, order }] };
     const effectiveOps: DataSetOp[] = [...filterOps, ...existingOps, sortOp];
     const effectiveLookup: DataSetLookup = { ...entry.originalLookup, operations: effectiveOps };
 
