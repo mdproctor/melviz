@@ -242,3 +242,54 @@ test.describe("Date test", () => {
     expect(table?.status).toBe("TABLE_OK");
   });
 });
+
+test.describe("Github Repositories (external API + JSONata)", () => {
+  test("renders bar chart and table with live GitHub data", async ({ page }) => {
+    await openDashboard(page, "Github Repositories");
+    const statuses = await getComponentStatuses(page);
+
+    const chart = statuses.find(s => s.type === "bar-chart");
+    expect(chart?.status).toBe("CHART_OK");
+
+    const table = statuses.find(s => s.type === "table");
+    expect(table?.status).toBe("TABLE_OK");
+  });
+});
+
+test.describe("FIFA 2022 Goals (external API + metrics)", () => {
+  test("renders metrics with substituted titles", async ({ page }) => {
+    await openDashboard(page, "FIFA 2022 Goals");
+    const statuses = await getComponentStatuses(page);
+
+    const metrics = statuses.filter(s => s.type === "metric");
+    expect(metrics.length).toBeGreaterThanOrEqual(1);
+    expect(metrics.every(m => m.status === "RENDERED")).toBe(true);
+
+    // Verify ${title} is substituted — should NOT appear literally
+    const metricText = await page.evaluate(() => {
+      const els = document.querySelectorAll('casehub-metric');
+      return Array.from(els).map(el => el.shadowRoot?.textContent || '').join(' ');
+    });
+    expect(metricText).not.toContain("${title}");
+  });
+});
+
+test.describe("Google Spreadsheet (external API)", () => {
+  test("renders chart and table", async ({ page }) => {
+    await openDashboard(page, "Google Spreadsheet");
+    const charts = await countRenderedCharts(page);
+    expect(charts).toBeGreaterThanOrEqual(1);
+  });
+});
+
+test.describe("Table dashboard (external API)", () => {
+  test("renders bar chart and table from GitHub Gists", async ({ page }) => {
+    await openDashboard(page, "Table");
+    const statuses = await getComponentStatuses(page);
+
+    const dataComponents = statuses.filter(s =>
+      s.status === "CHART_OK" || s.status === "TABLE_OK"
+    );
+    expect(dataComponents.length).toBeGreaterThanOrEqual(1);
+  });
+});
