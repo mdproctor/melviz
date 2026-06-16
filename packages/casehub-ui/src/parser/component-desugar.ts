@@ -81,11 +81,14 @@ export function desugarComponent(raw: Record<string, unknown>, displayerDefaults
     };
   }
 
-  // Displayer component
-  if ("displayer" in raw && typeof raw.displayer === "object" && raw.displayer !== null) {
+  // Displayer component (null/empty displayer gets settings from global defaults)
+  if ("displayer" in raw) {
+    const displayerRaw = (raw.displayer !== null && typeof raw.displayer === "object")
+      ? raw.displayer as Record<string, unknown>
+      : {};
     const merged = displayerDefaults
-      ? deepMergeRaw(displayerDefaults, raw.displayer as Record<string, unknown>)
-      : (raw.displayer as Record<string, unknown>);
+      ? deepMergeRaw(displayerDefaults, displayerRaw)
+      : displayerRaw;
     const component = desugarDisplayer(merged);
     // Attach style from outer properties
     const style = extractStyle(raw.properties);

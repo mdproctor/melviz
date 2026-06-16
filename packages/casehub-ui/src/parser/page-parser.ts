@@ -85,8 +85,14 @@ export function parsePage(raw: unknown): Component {
   // 7. Build root page with settings and datasets
   const rootProps: Record<string, unknown> = { name: "root" };
 
-  if (datasets) {
-    rootProps["datasets"] = datasets;
+  // Merge global.dataset into the datasets array (DashBuilder allows defining
+  // a single dataset in global.dataset as well as in the datasets[] array)
+  const allDatasets = [...(datasets ?? [])];
+  if (global?.["dataset"] && typeof global["dataset"] === "object") {
+    allDatasets.push(global["dataset"]);
+  }
+  if (allDatasets.length > 0) {
+    rootProps["datasets"] = allDatasets;
   }
 
   if (global) {
