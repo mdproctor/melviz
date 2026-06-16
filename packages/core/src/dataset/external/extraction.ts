@@ -394,12 +394,14 @@ function tabulate(
   }
 
   // Apply explicit column definitions if provided
-  if (explicitColumns !== undefined) {
-    columns = explicitColumns.map((c) => ({
-      id: c.id,
-      name: c.name ?? c.id,
-      type: c.type,
-    }));
+  if (explicitColumns !== undefined && explicitColumns.length > 0) {
+    columns = explicitColumns
+      .filter((c): c is ExternalColumnDef => c != null && typeof c === "object" && c.id !== undefined)
+      .map((c) => ({
+        id: c.id,
+        name: c.name ?? c.id,
+        type: typeof c.type === "string" ? mapTypeString(c.type) : (c.type ?? inferColumnType([])),
+      }));
     inferred = false;
   }
 

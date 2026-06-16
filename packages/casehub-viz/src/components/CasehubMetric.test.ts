@@ -265,6 +265,26 @@ describe("CasehubMetric", () => {
       const p = el.shadowRoot!.querySelector("p");
       expect(p?.textContent).toBe("5 items (5 total)");
     });
+
+    it("substitutes ${title} in template", () => {
+      const ds = makeDataSet([["val", "NUMBER"]], [[42]]);
+      const props: MetricProps = {
+        lookup: mockLookup("test"),
+        title: "Total Goals",
+        html: {
+          template: "<div><span class='value'>${value}</span><br/><span class='title'>${title}</span></div>",
+        },
+      };
+
+      el.props = props;
+      document.body.appendChild(el);
+      el.dataSet = ds;
+
+      const html = el.shadowRoot!.querySelector("div div")?.innerHTML;
+      expect(html).toContain("42");
+      expect(html).toContain("Total Goals");
+      expect(html).not.toContain("${title}");
+    });
   });
 
   // ── Value extraction ──────────────────────────────────────────────

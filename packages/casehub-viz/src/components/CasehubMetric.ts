@@ -44,7 +44,14 @@ export class CasehubMetric extends CasehubElement<MetricProps> {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
-      const html = props.html.template.replace(/\$\{value\}/g, escaped);
+      const escapedTitle = title
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+      const html = props.html.template
+        .replace(/\$\{value\}/g, escaped)
+        .replace(/\$\{title\}/g, escapedTitle);
       const wrapper = document.createElement("div");
       wrapper.innerHTML = html;
       container.appendChild(wrapper);

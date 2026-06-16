@@ -8,7 +8,11 @@ export class BrowserFetchProvider implements DataProvider {
   }
 
   async fetch(request: DataRequest): Promise<FetchResult> {
-    const url = new URL(request.url);
+    let base: string | undefined;
+    if (typeof location !== "undefined" && location.href && !location.href.startsWith("about:")) {
+      base = location.href;
+    }
+    const url = new URL(request.url, base);
     for (const [k, v] of Object.entries(request.query)) {
       url.searchParams.set(k, v);
     }
