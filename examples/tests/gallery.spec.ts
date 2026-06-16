@@ -220,11 +220,27 @@ test.describe("Column with rows", () => {
 });
 
 test.describe("Global Column settings", () => {
-  test("renders without unknown component errors", async ({ page }) => {
+  test("renders charts with global defaults and inline content", async ({ page }) => {
     await openDashboard(page, "Global Column settings");
     const statuses = await getComponentStatuses(page);
 
     const unknowns = statuses.filter(s => s.status === "NO_ELEMENT" && s.type === "unknown");
     expect(unknowns).toHaveLength(0);
+
+    // Should have table and bar-chart components with data
+    const dataComponents = statuses.filter(s =>
+      s.status === "CHART_OK" || s.status === "TABLE_OK" || s.status === "RENDERED"
+    );
+    expect(dataComponents.length).toBeGreaterThan(0);
+  });
+});
+
+test.describe("Date test", () => {
+  test("renders table with date data", async ({ page }) => {
+    await openDashboard(page, "Date test");
+    const statuses = await getComponentStatuses(page);
+
+    const table = statuses.find(s => s.type === "table");
+    expect(table?.status).toBe("TABLE_OK");
   });
 });
