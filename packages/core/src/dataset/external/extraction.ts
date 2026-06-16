@@ -79,11 +79,11 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
   }
 
   // Prometheus: URL ending in /metrics OR text/plain with metric-shaped lines
-  if (def.url !== undefined && /\/metrics$/.test(def.url)) {
-    return parseMetrics(raw);
+  if (def.url !== undefined && /(\/metrics$|^metrics$)/.test(def.url)) {
+    return metricsToObjects(parseMetrics(raw));
   }
   if (contentType?.startsWith("text/plain") && looksLikePrometheus(raw)) {
-    return parseMetrics(raw);
+    return metricsToObjects(parseMetrics(raw));
   }
 
   // URL file extension hint (tiebreaker when content type is missing/generic)
@@ -115,6 +115,14 @@ function parseRaw(result: FetchResult, def: ExternalDataSetDef): unknown {
       throw new DataSetError("PARSE_FAILED", "Failed to parse input as JSON or CSV", e);
     }
   }
+}
+
+function metricsToObjects(rows: string[][]): Record<string, string>[] {
+  return rows.map(([metric, labels, value]) => ({
+    metric: metric ?? "",
+    labels: labels ?? "",
+    value: value ?? "",
+  }));
 }
 
 /** Convert CSV parse result into array of objects (Shape B). */

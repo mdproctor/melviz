@@ -10,6 +10,7 @@ export interface DataProviderFactory {
 
 export function createDataProviderFactory(
   fetchFn?: typeof globalThis.fetch,
+  baseUrl?: string,
 ): DataProviderFactory {
   return {
     create(def: ExternalDataSetDef, config: DataProviderConfig): DataProvider | undefined {
@@ -25,7 +26,7 @@ export function createDataProviderFactory(
       let provider: DataProvider =
         config.defaultProvider === "server-relay" && config.serverRelay
           ? new ServerRelayProvider(config.serverRelay.endpoint)
-          : new BrowserFetchProvider(fetchFn);
+          : new BrowserFetchProvider(fetchFn, baseUrl);
 
       if (config.corsProxy?.enabled && config.corsProxy.url) {
         provider = new CorsProxyProvider(provider, config.corsProxy.url);

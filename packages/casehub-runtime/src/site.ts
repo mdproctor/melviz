@@ -32,6 +32,7 @@ export interface SiteOptions {
   readonly permissions?: PermissionContext;
   readonly fetch?: typeof globalThis.fetch;
   readonly providerConfig?: DataProviderConfig;
+  readonly baseUrl?: string;
 }
 
 export async function loadSite(
@@ -55,7 +56,7 @@ export async function loadSite(
   const pipeline = createDataPipeline(manager, dataSetScope, registry, filterState);
   pipeline.setResolverCtx({
     manager,
-    providerFactory: createDataProviderFactory(options?.fetch ?? globalThis.fetch?.bind(globalThis)),
+    providerFactory: createDataProviderFactory(options?.fetch ?? globalThis.fetch?.bind(globalThis), options?.baseUrl),
     providerConfig: options?.providerConfig ?? {},
     presetRegistry: createPresetRegistry(),
   });

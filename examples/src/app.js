@@ -163,7 +163,11 @@ async function loadDashboardInTarget(dashboardPath) {
         dashboardTarget.innerHTML = "";
         dashboardTarget.className = "";
 
-        currentSite = await window.casehub.loadSite(dashboardTarget, yamlText);
+        // Resolve base URL for relative dataset paths (e.g. url: metrics)
+        const dashboardDir = dashboardPath.substring(0, dashboardPath.lastIndexOf('/') + 1);
+        const baseUrl = `${window.location.origin}/dashboards/${dashboardDir}`;
+
+        currentSite = await window.casehub.loadSite(dashboardTarget, yamlText, { baseUrl });
     } catch (error) {
         console.error('Error loading dashboard:', error);
         dashboardTarget.innerHTML = `

@@ -2,14 +2,16 @@ import type { DataProvider, DataRequest, FetchResult } from "../types.js";
 
 export class BrowserFetchProvider implements DataProvider {
   private readonly _fetch: typeof globalThis.fetch;
+  private readonly _baseUrl: string | undefined;
 
-  constructor(fetchFn?: typeof globalThis.fetch) {
+  constructor(fetchFn?: typeof globalThis.fetch, baseUrl?: string) {
     this._fetch = fetchFn ?? globalThis.fetch;
+    this._baseUrl = baseUrl;
   }
 
   async fetch(request: DataRequest): Promise<FetchResult> {
-    let base: string | undefined;
-    if (typeof location !== "undefined" && location.href && !location.href.startsWith("about:")) {
+    let base = this._baseUrl;
+    if (!base && typeof location !== "undefined" && location.href && !location.href.startsWith("about:")) {
       base = location.href;
     }
     const url = new URL(request.url, base);
