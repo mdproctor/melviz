@@ -1,3 +1,5 @@
+import { marked } from "marked";
+
 export function renderTitle(el: HTMLElement, props: Record<string, unknown>): void {
   const text = typeof props.text === "string" ? props.text : "";
   const size = typeof props.size === "string" ? props.size : "h1";
@@ -15,7 +17,9 @@ export function renderHtml(el: HTMLElement, props: Record<string, unknown>): voi
 }
 
 export function renderMarkdown(el: HTMLElement, props: Record<string, unknown>): void {
-  const pre = document.createElement("pre");
-  pre.textContent = typeof props.content === "string" ? props.content : "";
-  el.appendChild(pre);
+  const content = typeof props.content === "string" ? props.content : "";
+  const wrapper = document.createElement("div");
+  wrapper.classList.add("casehub-markdown");
+  wrapper.innerHTML = marked.parse(content) as string;
+  el.appendChild(wrapper);
 }

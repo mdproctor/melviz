@@ -74,10 +74,10 @@ describe("createActivationCallback", () => {
     expect(el.querySelector("b")?.textContent).toBe("bold");
   });
 
-  it("renders markdown as pre", () => {
+  it("renders markdown as parsed HTML", () => {
     const component: Component = { type: "markdown", props: { content: "# Hello" } };
     const { el } = setup(component);
-    expect(el.querySelector("pre")?.textContent).toBe("# Hello");
+    expect(el.querySelector(".casehub-markdown h1")?.textContent).toBe("Hello");
   });
 
   it("does not activate layout types", () => {

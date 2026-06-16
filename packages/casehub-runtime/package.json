@@ -16,7 +16,8 @@
     "@casehub/data": "workspace:*",
     "@casehub/ui": "workspace:*",
     "@casehub/viz": "workspace:*",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "marked": "^15.0.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
