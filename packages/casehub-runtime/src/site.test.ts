@@ -105,4 +105,17 @@ describe("loadSite", () => {
     site.dispose();
     document.body.removeChild(target);
   });
+
+  it("accepts a YAML string as source", async () => {
+    const yaml = `
+pages:
+  - components:
+      - html: "<p>hello</p>"
+`;
+    const target = document.createElement("div");
+    const site = await loadSite(target, yaml);
+    expect(site.root.type).toBe("page");
+    expect(target.innerHTML).toContain("hello");
+    site.dispose();
+  });
 });

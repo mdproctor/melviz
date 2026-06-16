@@ -10,6 +10,7 @@ import { createDataSetManager } from "@casehub/data/dist/dataset/manager.js";
 import { createDataProviderFactory, createPresetRegistry } from "@casehub/data/dist/dataset/external/index.js";
 import type { Site, ViewState, DeepLink } from "@casehub/ui/dist/model/page-types.js";
 import { parsePage } from "@casehub/ui/dist/parser/page-parser.js";
+import { load as yamlLoad } from "js-yaml";
 import { cellToRaw } from "@casehub/viz/dist/base/cell-extract.js";
 import { buildPagePathMap } from "./page-paths.js";
 import { buildDataSetScope, resolveDataSetDef } from "./dataset-scope.js";
@@ -38,7 +39,7 @@ export async function loadSite(
   source: string | Component,
   options?: SiteOptions,
 ): Promise<LiveSite> {
-  const root = typeof source === "string" ? parsePage(source) : source;
+  const root = typeof source === "string" ? parsePage(yamlLoad(source) as Record<string, unknown>) : source;
   const permissions = options?.permissions ?? ALLOW_ALL;
 
   const pagePathMap = buildPagePathMap(root);
