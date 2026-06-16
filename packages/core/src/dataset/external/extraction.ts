@@ -380,6 +380,15 @@ function tabulate(
     inferred = true;
   } else if (Array.isArray(data) && data.length === 0) {
     throw new DataSetError("EMPTY_RESULT", "Extraction produced no data (empty array)");
+  } else if (Array.isArray(data) && data.every(v => typeof v !== "object" || v === null)) {
+    // Shape D: flat array of primitives → single row with auto-generated columns
+    columns = data.map((_, i) => ({
+      id: `Column ${i}` as ColumnId,
+      name: `Column ${i}`,
+      type: inferColumnType([data[i]]),
+    }));
+    rows = [data.map(v => valueToString(v))];
+    inferred = true;
   } else {
     throw new DataSetError("EXTRACTION_ERROR", "Unrecognized data shape");
   }

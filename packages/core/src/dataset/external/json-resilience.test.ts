@@ -91,6 +91,27 @@ describe("JSON parsing resilience for inline content", () => {
     expect(result.dataset.rows).toHaveLength(2);
   });
 
+  it("treats flat array of primitives as single-row dataset", async () => {
+    const result = await extractDataSet(
+      { data: '["ABC", 1]' },
+      emptyDef,
+      presets,
+    );
+    expect(result.dataset.rows).toHaveLength(1);
+    expect(result.dataset.columns).toHaveLength(2);
+    expect(result.dataset.columns[0].id).toBe("Column 0");
+  });
+
+  it("treats flat array with single-quoted values as single-row dataset", async () => {
+    const result = await extractDataSet(
+      { data: "['2023-06-21T16:46:21.802Z']" },
+      emptyDef,
+      presets,
+    );
+    expect(result.dataset.rows).toHaveLength(1);
+    expect(result.dataset.columns).toHaveLength(1);
+  });
+
   it("throws on empty input", async () => {
     await expect(
       extractDataSet({ data: "" }, emptyDef, presets),
