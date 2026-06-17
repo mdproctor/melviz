@@ -1,11 +1,33 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "fs";
 import { load } from "js-yaml";
+import type { Component } from "../model/types.js";
 import { parsePage } from "./page-parser.js";
 import { join } from "path";
 import { globSync } from "glob";
 
 const EXAMPLES_DIR = join(__dirname, "../../../../examples/dashboards");
+
+function findPageByName(root: Component, name: string): Component | undefined {
+  if (root.type === "page" && (root.props as Record<string, unknown>)?.["name"] === name) {
+    return root;
+  }
+  if (root.items) {
+    for (const item of root.items) {
+      const found = findPageByName(item.component, name);
+      if (found) return found;
+    }
+  }
+  if (root.slots) {
+    for (const children of Object.values(root.slots)) {
+      for (const child of children) {
+        const found = findPageByName(child, name);
+        if (found) return found;
+      }
+    }
+  }
+  return undefined;
+}
 
 describe("backwards compatibility — existing dashboards", () => {
   // Skip if examples directory doesn't exist (CI without examples)
@@ -45,9 +67,9 @@ describe("backwards compatibility — existing dashboards", () => {
       expect(root.type).toBe("page");
     });
 
-    it("has many pages", () => {
+    it("top-level pages exclude navTree-embedded pages", () => {
       const pages = root.slots!["content"]!;
-      expect(pages.length).toBeGreaterThan(10);
+      expect(pages.length).toBe(4);
     });
 
     it("has datasets on root props", () => {
@@ -89,9 +111,7 @@ describe("backwards compatibility — existing dashboards", () => {
     });
 
     it("handles displayer with external component (echarts)", () => {
-      const echartsPage = root.slots!["content"]!.find(
-        (p) => (p.props as Record<string, unknown>)?.["name"] === "ECharts",
-      )!;
+      const echartsPage = findPageByName(root, "ECharts")!;
       expect(echartsPage).toBeDefined();
       const echartsItem = echartsPage.items!.find(
         (item) => item.component.type === "iframe-plugin",
@@ -101,18 +121,14 @@ describe("backwards compatibility — existing dashboards", () => {
     });
 
     it("handles meter displayer", () => {
-      const meterPage = root.slots!["content"]!.find(
-        (p) => (p.props as Record<string, unknown>)?.["name"] === "Meter",
-      )!;
+      const meterPage = findPageByName(root, "Meter")!;
       expect(meterPage).toBeDefined();
       const meterItem = meterPage.items!.find((item) => item.component.type === "meter");
       expect(meterItem).toBeDefined();
     });
 
     it("handles screen component (page-ref resolution)", () => {
-      const screenPage = root.slots!["content"]!.find(
-        (p) => (p.props as Record<string, unknown>)?.["name"] === "Screen",
-      )!;
+      const screenPage = findPageByName(root, "Screen")!;
       expect(screenPage).toBeDefined();
       // After resolution, screen component should reference the Layout page
       const layoutRef = screenPage.items!.find(
@@ -121,6 +137,50 @@ describe("backwards compatibility — existing dashboards", () => {
           (item.component.props as Record<string, unknown>)?.["name"] === "Layout",
       );
       expect(layoutRef).toBeDefined();
+    });
+  });
+
+  describe("navTree page filtering — pages in groups excluded from top-level", () => {
+    it("only pages not in any navTree group appear at top level", () => {
+      const yaml = {
+        pages: [
+          { name: "index", components: [{ type: "TABS", properties: { navGroupId: "Main", targetDivId: "target" } }, { div: "target" }] },
+          { name: "Dashboard", components: [{ html: "dashboard content" }] },
+          { name: "Settings", components: [{ html: "settings content" }] },
+          { name: "Orphan", components: [{ html: "orphan page" }] },
+        ],
+        navTree: {
+          root_items: [{ type: "GROUP", id: "Main", children: [{ page: "Dashboard" }, { page: "Settings" }] }],
+        },
+      };
+      const root = parsePage(yaml);
+      const topLevel = root.slots!["content"]!;
+      const topLevelNames = topLevel.map((p: Component) => (p.props as Record<string, unknown>)?.["name"]);
+      expect(topLevelNames).toContain("index");
+      expect(topLevelNames).toContain("Orphan");
+      expect(topLevelNames).not.toContain("Dashboard");
+      expect(topLevelNames).not.toContain("Settings");
+    });
+
+    it("navTree-embedded pages still accessible through navigation slots", () => {
+      const yaml = {
+        pages: [
+          { name: "index", components: [{ type: "TABS", properties: { navGroupId: "Main", targetDivId: "t" } }, { div: "t" }] },
+          { name: "PageA", components: [{ html: "content A" }] },
+        ],
+        navTree: {
+          root_items: [{ type: "GROUP", id: "Main", children: [{ page: "PageA" }] }],
+        },
+      };
+      const root = parsePage(yaml);
+      const indexPage = root.slots!["content"]!.find(
+        (p: Component) => (p.props as Record<string, unknown>)?.["name"] === "index",
+      )!;
+      const contentTabs = indexPage.items!.find(
+        (item: { component: Component }) => item.component.type === "tabs" && item.component.slots,
+      );
+      expect(contentTabs).toBeDefined();
+      expect(contentTabs!.component.slots!["PageA"]).toBeDefined();
     });
   });
 

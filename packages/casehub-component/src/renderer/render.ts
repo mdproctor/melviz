@@ -7,6 +7,10 @@ import { getSlotNames, getSlotChildren } from "./slots.js";
 import { isLayoutType, applyLayoutCSS } from "./layout.js";
 import { wireInteractivity } from "./interactive.js";
 
+// Subset of INTERACTIVE_TYPES (navigation.ts, runtime package). All lazy types
+// are interactive; accordion is interactive but not lazy (all sections start expanded).
+const LAZY_TYPES = new Set(["tabs", "pills", "sidebar", "carousel", "stack"]);
+
 export interface RenderOptions {
   readonly permissions?: PermissionContext;
   readonly document?: Document;
@@ -95,6 +99,7 @@ function renderNode(
   } else if (component.slots) {
     const slotNames = getSlotNames(component);
     const panels = new Map<string, HTMLElement>();
+    const isLazy = LAZY_TYPES.has(component.type);
 
     for (const slotName of slotNames) {
       const slotContainer = doc.createElement("div");
@@ -102,13 +107,25 @@ function renderNode(
       el.appendChild(slotContainer);
       panels.set(slotName, slotContainer);
 
-      const children = getSlotChildren(component, slotName);
-      for (let i = 0; i < children.length; i++) {
-        renderNode(slotContainer, children[i]!, id, slotName, i, permissions, doc, onNode);
+      if (!isLazy) {
+        const children = getSlotChildren(component, slotName);
+        for (let i = 0; i < children.length; i++) {
+          renderNode(slotContainer, children[i]!, id, slotName, i, permissions, doc, onNode);
+        }
       }
     }
 
-    // 7. Wire interactivity for interactive layout types
-    wireInteractivity(el, component.type, slotNames, panels, doc);
+    wireInteractivity(el, component.type, slotNames, panels, doc,
+      isLazy && component.slots
+        ? {
+            slotChildren: component.slots,
+            renderSlot: (parent: HTMLElement, children: readonly Component[], slot: string) => {
+              for (let i = 0; i < children.length; i++) {
+                renderNode(parent, children[i]!, id, slot, i, permissions, doc, onNode);
+              }
+            },
+          }
+        : undefined,
+    );
   }
 }

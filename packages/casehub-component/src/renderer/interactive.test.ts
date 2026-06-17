@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { wireInteractivity } from "./interactive.js";
+import type { Component } from "../model/types.js";
+import { slotSwapRegistry } from "./slot-swap.js";
+import type { LazyConfig } from "./interactive.js";
 
 function makeSlotContainers(slotNames: string[]): {
   container: HTMLDivElement;
@@ -216,5 +219,186 @@ describe("wireInteractivity — sidebar", () => {
     expect(events).toHaveLength(1);
     expect(events[0]!.activeSlot).toBe("B");
     expect(events[0]!.containerId).toBe("side-1");
+  });
+});
+
+function makeLazyConfig(
+  slots: Record<string, Component[]>,
+): LazyConfig {
+  const renderCalls: Array<{ slotName: string }> = [];
+  return {
+    slotChildren: slots,
+    renderSlot: (parent, children, slotName) => {
+      renderCalls.push({ slotName });
+      for (const child of children) {
+        const el = document.createElement("div");
+        el.dataset.componentType = child.type;
+        parent.appendChild(el);
+      }
+    },
+    _renderCalls: renderCalls,
+  } as LazyConfig & { _renderCalls: typeof renderCalls };
+}
+
+describe("wireInteractivity — lazy tab swap", () => {
+  it("tab click clears old slot and renders new slot", () => {
+    const { container, panels } = makeSlotContainers(["A", "B"]);
+    const lazy = makeLazyConfig({
+      A: [{ type: "html" }],
+      B: [{ type: "table" }],
+    });
+    wireInteractivity(container, "tabs", ["A", "B"], panels, document, lazy);
+
+    // Initial: A rendered, B empty
+    expect(panels.get("A")!.children.length).toBeGreaterThan(0);
+    expect(panels.get("B")!.children).toHaveLength(0);
+
+    // Click B
+    const bar = container.querySelector("[data-tab-bar]")!;
+    (bar.querySelectorAll("button")[1] as HTMLElement).click();
+
+    // A cleared, B rendered
+    expect(panels.get("A")!.children).toHaveLength(0);
+    expect(panels.get("B")!.children.length).toBeGreaterThan(0);
+    expect(panels.get("B")!.querySelector("[data-component-type='table']")).toBeTruthy();
+  });
+
+  it("re-clicking active tab is a no-op", () => {
+    const { container, panels } = makeSlotContainers(["A", "B"]);
+    const lazy = makeLazyConfig({
+      A: [{ type: "html" }],
+      B: [{ type: "table" }],
+    });
+    wireInteractivity(container, "tabs", ["A", "B"], panels, document, lazy);
+    const childCount = panels.get("A")!.children.length;
+
+    const events: unknown[] = [];
+    container.addEventListener("casehub-slot-change", (e) => events.push(e));
+
+    // Click A (already active)
+    const bar = container.querySelector("[data-tab-bar]")!;
+    (bar.querySelectorAll("button")[0] as HTMLElement).click();
+
+    // No change, no event
+    expect(panels.get("A")!.children.length).toBe(childCount);
+    expect(events).toHaveLength(0);
+  });
+
+  it("switching back re-renders fresh", () => {
+    const { container, panels } = makeSlotContainers(["A", "B"]);
+    const lazy = makeLazyConfig({
+      A: [{ type: "html" }],
+      B: [{ type: "table" }],
+    });
+    wireInteractivity(container, "tabs", ["A", "B"], panels, document, lazy);
+
+    const bar = container.querySelector("[data-tab-bar]")!;
+    const buttons = bar.querySelectorAll("button");
+
+    // Switch to B then back to A
+    (buttons[1] as HTMLElement).click();
+    (buttons[0] as HTMLElement).click();
+
+    // A re-rendered
+    expect(panels.get("A")!.children.length).toBeGreaterThan(0);
+    expect(panels.get("B")!.children).toHaveLength(0);
+  });
+
+  it("swap function registered in slotSwapRegistry", () => {
+    const { container, panels } = makeSlotContainers(["A", "B"]);
+    const lazy = makeLazyConfig({
+      A: [{ type: "html" }],
+      B: [{ type: "table" }],
+    });
+    wireInteractivity(container, "tabs", ["A", "B"], panels, document, lazy);
+    expect(slotSwapRegistry.get(container)).toBeDefined();
+  });
+});
+
+describe("wireInteractivity — lazy sidebar swap", () => {
+  it("sidebar click clears old slot and renders new slot", () => {
+    const { container, panels } = makeSlotContainers(["Nav", "Content"]);
+    const lazy = makeLazyConfig({
+      Nav: [{ type: "html" }],
+      Content: [{ type: "table" }],
+    });
+    wireInteractivity(container, "sidebar", ["Nav", "Content"], panels, document, lazy);
+
+    expect(panels.get("Nav")!.children.length).toBeGreaterThan(0);
+    expect(panels.get("Content")!.children).toHaveLength(0);
+
+    const bar = container.querySelector("[data-tab-bar]")!;
+    (bar.querySelectorAll("button")[1] as HTMLElement).click();
+
+    expect(panels.get("Nav")!.children).toHaveLength(0);
+    expect(panels.get("Content")!.querySelector("[data-component-type='table']")).toBeTruthy();
+  });
+});
+
+describe("wireInteractivity — lazy carousel swap", () => {
+  it("next button clears old and renders new via swap", () => {
+    const { container, panels } = makeSlotContainers(["S1", "S2"]);
+    const lazy = makeLazyConfig({
+      S1: [{ type: "html" }],
+      S2: [{ type: "table" }],
+    });
+    wireInteractivity(container, "carousel", ["S1", "S2"], panels, document, lazy);
+
+    expect(panels.get("S1")!.children.length).toBeGreaterThan(0);
+
+    const next = container.querySelector("[data-carousel-next]") as HTMLElement;
+    next.click();
+
+    expect(panels.get("S1")!.children).toHaveLength(0);
+    expect(panels.get("S2")!.querySelector("[data-component-type='table']")).toBeTruthy();
+  });
+
+  it("prev button wraps and renders via swap", () => {
+    const { container, panels } = makeSlotContainers(["S1", "S2"]);
+    const lazy = makeLazyConfig({
+      S1: [{ type: "html" }],
+      S2: [{ type: "table" }],
+    });
+    wireInteractivity(container, "carousel", ["S1", "S2"], panels, document, lazy);
+
+    const prev = container.querySelector("[data-carousel-prev]") as HTMLElement;
+    prev.click();
+
+    expect(panels.get("S1")!.children).toHaveLength(0);
+    expect(panels.get("S2")!.querySelector("[data-component-type='table']")).toBeTruthy();
+  });
+});
+
+describe("wireInteractivity — lazy stack", () => {
+  it("renders only first slot, registers swap, no click handlers", () => {
+    const { container, panels } = makeSlotContainers(["L1", "L2"]);
+    const lazy = makeLazyConfig({
+      L1: [{ type: "html" }],
+      L2: [{ type: "table" }],
+    });
+    wireInteractivity(container, "stack", ["L1", "L2"], panels, document, lazy);
+
+    expect(panels.get("L1")!.children.length).toBeGreaterThan(0);
+    expect(panels.get("L2")!.children).toHaveLength(0);
+    expect(slotSwapRegistry.get(container)).toBeDefined();
+    expect(container.querySelector("[data-tab-bar]")).toBeNull();
+    expect(container.querySelector("[data-carousel-prev]")).toBeNull();
+  });
+
+  it("programmatic swap via registry clears old and renders new", () => {
+    const { container, panels } = makeSlotContainers(["L1", "L2"]);
+    const lazy = makeLazyConfig({
+      L1: [{ type: "html" }],
+      L2: [{ type: "table" }],
+    });
+    wireInteractivity(container, "stack", ["L1", "L2"], panels, document, lazy);
+
+    const swap = slotSwapRegistry.get(container)!;
+    swap("L2");
+
+    expect(panels.get("L1")!.children).toHaveLength(0);
+    expect(panels.get("L2")!.querySelector("[data-component-type='table']")).toBeTruthy();
+    expect(panels.get("L1")!.style.display).toBe("none");
+    expect(panels.get("L2")!.style.display).not.toBe("none");
   });
 });

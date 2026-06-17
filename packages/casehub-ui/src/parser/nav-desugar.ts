@@ -215,6 +215,18 @@ function findGroupRecursive(
  * Extracts all page names from a navTree group.
  * Recursively processes nested groups.
  */
+export function collectNavTreePageNames(navTree: unknown | undefined): Set<string> {
+  const names = new Set<string>();
+  const typed = navTree as NavTree | undefined;
+  if (!typed?.root_items) return names;
+  for (const group of typed.root_items) {
+    for (const name of extractPageNames(group)) {
+      names.add(name);
+    }
+  }
+  return names;
+}
+
 function extractPageNames(group: NavTreeGroup): string[] {
   const names: string[] = [];
 

@@ -32,7 +32,6 @@ export interface SiteOptions {
   readonly permissions?: PermissionContext;
   readonly fetch?: typeof globalThis.fetch;
   readonly providerConfig?: DataProviderConfig;
-  readonly baseUrl?: string;
 }
 
 export async function loadSite(
@@ -77,7 +76,7 @@ export async function loadSite(
     history[method](null, "", serializeToUrl(link));
   }
 
-  // --- Event delegation (BEFORE renderComponent — connectedCallback fires during render) ---
+  // --- Event delegation ---
 
   target.addEventListener("casehub-data-request", ((e: Event) => {
     const detail = (e as CustomEvent).detail;
@@ -181,7 +180,7 @@ export async function loadSite(
       ?.filter as { group?: string } | undefined;
     const filterOps = getActiveFilterOps(filterState, entry.pagePath, filterGroup?.group);
     const existingOps = entry.originalLookup.operations.filter((op: DataSetOp) => op.type !== "sort");
-    const sortOp: DataSetOp = { type: "sort" as const, columns: [{ columnId, order }] };
+    const sortOp: DataSetOp = { type: "sort" as const, columnId, order };
     const effectiveOps: DataSetOp[] = [...filterOps, ...existingOps, sortOp];
     const effectiveLookup: DataSetLookup = { ...entry.originalLookup, operations: effectiveOps };
 
@@ -194,7 +193,7 @@ export async function loadSite(
     }
   }) as EventListener, { signal: abortController.signal });
 
-  // --- Render (AFTER event listeners — connectedCallback dispatches data-request during render) ---
+  // --- Render (AFTER event listeners — connectedCallback fires during render) ---
 
   const onNode = createActivationCallback(registry, pagePathMap);
   renderComponent(target, root, { permissions, onNode });

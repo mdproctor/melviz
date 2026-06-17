@@ -1,7 +1,19 @@
+import { slotSwapRegistry, dispatchSlotChange } from "./slot-swap.js";
+
 export function activateSlot(
   container: HTMLElement,
   slotName: string,
 ): boolean {
+  // Check if slot exists before attempting any activation
+  const slotPanel = container.querySelector<HTMLElement>(`:scope > [data-slot="${slotName}"]`);
+  if (!slotPanel) return false;
+
+  const swap = slotSwapRegistry.get(container);
+  if (swap) {
+    swap(slotName);
+    return true;
+  }
+
   const panels = container.querySelectorAll<HTMLElement>(":scope > [data-slot]");
   let found = false;
 
@@ -28,16 +40,7 @@ export function activateSlot(
     }
   }
 
-  container.dispatchEvent(
-    new CustomEvent("casehub-slot-change", {
-      bubbles: true,
-      composed: true,
-      detail: {
-        activeSlot: slotName,
-        containerId: container.dataset.componentId,
-      },
-    }),
-  );
+  dispatchSlotChange(container, slotName);
 
   return true;
 }

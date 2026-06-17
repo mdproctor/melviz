@@ -1,7 +1,7 @@
 import type { Component, GridItem } from "../model/types.js";
 import { substituteProperties } from "./property-substitution.js";
 import { desugarComponent } from "./component-desugar.js";
-import { resolveNavigation } from "./nav-desugar.js";
+import { resolveNavigation, collectNavTreePageNames } from "./nav-desugar.js";
 
 /**
  * Main entry point for parsing raw YAML dashboard objects into the Component model.
@@ -125,10 +125,27 @@ export function parsePage(raw: unknown): Component {
     return page;
   });
 
-  // 6b. Remove pages that were embedded via page-ref from the top-level slot
+  // 6b. Replace unresolved page references in nav slots with resolved versions.
+  // resolveNavGroup uses childPages (unresolved) when creating slot values.
+  // Pages whose internal navigation was resolved in step 6 need their resolved
+  // versions propagated into any slot that references them.
+  const resolvedByName = new Map<string, Component>();
+  for (const p of resolvedPages) {
+    const name = p.props?.["name"] as string | undefined;
+    if (name) resolvedByName.set(name, p);
+  }
+  const patchedPages = resolvedPages.map((page) => patchSlotReferences(page, resolvedByName));
+
+  // 6c. Remove pages embedded via page-ref OR navTree from the top-level slot.
+  // Pages in navTree groups are rendered as slots inside their navigation container —
+  // including them at the top level creates duplicate DOM trees.
+  const navTreePageNames = collectNavTreePageNames(navTree);
+  for (const name of navTreePageNames) {
+    embeddedPageNames.add(name);
+  }
   const topLevelPages = embeddedPageNames.size > 0
-    ? resolvedPages.filter((p) => !embeddedPageNames.has(p.props?.["name"] as string))
-    : resolvedPages;
+    ? patchedPages.filter((p) => !embeddedPageNames.has(p.props?.["name"] as string))
+    : patchedPages;
 
   // 7. Build root page with settings and datasets
   const rootProps: Record<string, unknown> = { name: "root" };
@@ -325,4 +342,45 @@ function parsePageContent(
 function assignIdIfMissing(component: Component, defaultId: string): Component {
   if (component.id) return component;
   return { ...component, id: defaultId };
+}
+
+function patchSlotReferences(
+  component: Component,
+  resolved: Map<string, Component>,
+): Component {
+  let changed = false;
+  let newItems = component.items;
+  let newSlots = component.slots;
+
+  if (component.items) {
+    const patched = component.items.map((item) => {
+      const patchedChild = patchSlotReferences(item.component, resolved);
+      if (patchedChild !== item.component) {
+        changed = true;
+        return { ...item, component: patchedChild };
+      }
+      return item;
+    });
+    if (changed) newItems = patched;
+  }
+
+  if (component.slots) {
+    const patchedSlots: Record<string, Component[]> = {};
+    for (const [name, children] of Object.entries(component.slots)) {
+      patchedSlots[name] = children.map((child) => {
+        if (child.type === "page" && child.props?.["name"]) {
+          const resolvedVersion = resolved.get(child.props["name"] as string);
+          if (resolvedVersion && resolvedVersion !== child) {
+            changed = true;
+            return patchSlotReferences(resolvedVersion, resolved);
+          }
+        }
+        return patchSlotReferences(child, resolved);
+      });
+    }
+    if (changed) newSlots = patchedSlots;
+  }
+
+  if (!changed) return component;
+  return { ...component, ...(newItems !== component.items ? { items: newItems } : {}), ...(newSlots !== component.slots ? { slots: newSlots } : {}) };
 }

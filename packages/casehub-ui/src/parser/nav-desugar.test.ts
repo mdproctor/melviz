@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Component } from "../model/types.js";
-import { resolveNavigation } from "./nav-desugar.js";
+import { resolveNavigation, collectNavTreePageNames } from "./nav-desugar.js";
 
 describe("resolveNavigation", () => {
   it("resolves navGroupId + targetDivId into tabs slots", () => {
@@ -211,5 +211,49 @@ describe("resolveNavigation", () => {
     expect(result[1]!.type).toBe("html");
     expect(result[2]!.type).toBe("tabs");
     expect(result[2]!.slots!["P2"]).toBeDefined();
+  });
+});
+
+describe("collectNavTreePageNames", () => {
+  it("collects all page names from all groups", () => {
+    const navTree = {
+      root_items: [
+        {
+          type: "GROUP", id: "Main",
+          children: [{ page: "Dashboard" }, { page: "Settings" }],
+        },
+        {
+          type: "GROUP", id: "Charts",
+          children: [{ page: "Bar" }, { page: "Pie" }],
+        },
+      ],
+    };
+    const names = collectNavTreePageNames(navTree);
+    expect(names).toEqual(new Set(["Dashboard", "Settings", "Bar", "Pie"]));
+  });
+
+  it("collects from nested groups", () => {
+    const navTree = {
+      root_items: [{
+        type: "GROUP", id: "Root",
+        children: [
+          { page: "Top" },
+          {
+            type: "GROUP", id: "Sub",
+            children: [{ page: "Nested" }],
+          },
+        ],
+      }],
+    };
+    const names = collectNavTreePageNames(navTree);
+    expect(names).toEqual(new Set(["Top", "Nested"]));
+  });
+
+  it("returns empty set for undefined navTree", () => {
+    expect(collectNavTreePageNames(undefined)).toEqual(new Set());
+  });
+
+  it("returns empty set for navTree without root_items", () => {
+    expect(collectNavTreePageNames({})).toEqual(new Set());
   });
 });

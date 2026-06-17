@@ -330,3 +330,109 @@ describe("renderComponent — onNode callback", () => {
     expect(childCount).toBe(0);
   });
 });
+
+describe("renderComponent — lazy rendering for one-at-a-time containers", () => {
+  it("tabs: only first slot children rendered, other slots empty", () => {
+    const target = document.createElement("div");
+    const component: Component = {
+      type: "tabs",
+      slots: {
+        A: [{ type: "html" }, { type: "html" }],
+        B: [{ type: "html" }],
+        C: [{ type: "html" }],
+      },
+    };
+    renderComponent(target, component);
+    const container = target.firstElementChild as HTMLElement;
+    const slots = container.querySelectorAll<HTMLElement>(":scope > div[data-slot]");
+    expect(slots).toHaveLength(3);
+    // Slot A (active) has children
+    expect(slots[0]!.querySelectorAll("[data-component-type]")).toHaveLength(2);
+    // Slots B and C are empty
+    expect(slots[1]!.children).toHaveLength(0);
+    expect(slots[2]!.children).toHaveLength(0);
+  });
+
+  it("pills: only first slot children rendered", () => {
+    const target = document.createElement("div");
+    const component: Component = {
+      type: "pills",
+      slots: { X: [{ type: "html" }], Y: [{ type: "html" }] },
+    };
+    renderComponent(target, component);
+    const container = target.firstElementChild as HTMLElement;
+    const slots = container.querySelectorAll<HTMLElement>(":scope > div[data-slot]");
+    expect(slots[0]!.querySelectorAll("[data-component-type]")).toHaveLength(1);
+    expect(slots[1]!.children).toHaveLength(0);
+  });
+
+  it("sidebar: only first slot children rendered", () => {
+    const target = document.createElement("div");
+    const component: Component = {
+      type: "sidebar",
+      slots: { Nav: [{ type: "html" }], Main: [{ type: "html" }] },
+    };
+    renderComponent(target, component);
+    const container = target.firstElementChild as HTMLElement;
+    const slots = container.querySelectorAll<HTMLElement>(":scope > div[data-slot]");
+    expect(slots[0]!.querySelectorAll("[data-component-type]")).toHaveLength(1);
+    expect(slots[1]!.children).toHaveLength(0);
+  });
+
+  it("carousel: only first slot children rendered", () => {
+    const target = document.createElement("div");
+    const component: Component = {
+      type: "carousel",
+      slots: { S1: [{ type: "html" }], S2: [{ type: "html" }] },
+    };
+    renderComponent(target, component);
+    const container = target.firstElementChild as HTMLElement;
+    const slots = container.querySelectorAll<HTMLElement>(":scope > [data-slot]");
+    expect(slots[0]!.querySelectorAll("[data-component-type]")).toHaveLength(1);
+    expect(slots[1]!.children).toHaveLength(0);
+  });
+
+  it("stack: only first slot children rendered", () => {
+    const target = document.createElement("div");
+    const component: Component = {
+      type: "stack",
+      slots: { L1: [{ type: "html" }], L2: [{ type: "html" }] },
+    };
+    renderComponent(target, component);
+    const container = target.firstElementChild as HTMLElement;
+    const slots = container.querySelectorAll<HTMLElement>(":scope > [data-slot]");
+    expect(slots[0]!.querySelectorAll("[data-component-type]")).toHaveLength(1);
+    expect(slots[1]!.children).toHaveLength(0);
+  });
+
+  it("accordion: all slot children rendered (eager)", () => {
+    const target = document.createElement("div");
+    const component: Component = {
+      type: "accordion",
+      slots: { S1: [{ type: "html" }], S2: [{ type: "html" }] },
+    };
+    renderComponent(target, component);
+    const container = target.firstElementChild as HTMLElement;
+    const slots = container.querySelectorAll<HTMLElement>("[data-slot]");
+    expect(slots[0]!.querySelectorAll("[data-component-type]")).toHaveLength(1);
+    expect(slots[1]!.querySelectorAll("[data-component-type]")).toHaveLength(1);
+  });
+
+  it("onNode fires only for active slot children on initial render", () => {
+    const target = document.createElement("div");
+    const calls: string[] = [];
+    const component: Component = {
+      type: "tabs",
+      slots: {
+        Active: [{ type: "bar-chart" }],
+        Hidden: [{ type: "table" }],
+      },
+    };
+    renderComponent(target, component, {
+      onNode: (_el, comp) => { calls.push(comp.type); },
+    });
+    expect(calls).toContain("tabs");
+    expect(calls).toContain("bar-chart");
+    expect(calls).not.toContain("table");
+  });
+});
