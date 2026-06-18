@@ -1,5 +1,6 @@
 properties:
     refreshInterval: 5
+    metricsUrl: data/quarkus/metrics
 global:
     displayer:
         chart:
@@ -14,7 +15,7 @@ global:
             uuid: pop
 datasets:
     - uuid: pop
-      url: data/quarkus/metrics
+      url: ${metricsUrl}
       columns:
           - id: Metric
             type: LABEL

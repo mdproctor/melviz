@@ -159,7 +159,7 @@ function extractUrlProperties(yamlText) {
     if (!match) return props;
     for (const line of match[1].split('\n')) {
         const kv = line.match(/^\s+(\w+):\s*(.+)/);
-        if (kv && (kv[2].includes('http') || kv[2].includes('localhost') || kv[2].includes('url') || kv[1].toLowerCase().includes('url'))) {
+        if (kv && (kv[2].includes('http') || kv[2].includes('localhost') || kv[1].toLowerCase().includes('url') || kv[2].includes('data/') || kv[2].includes('metrics') || kv[2].includes('/api/'))) {
             props[kv[1]] = kv[2].trim();
         }
     }

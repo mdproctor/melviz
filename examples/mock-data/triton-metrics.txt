@@ -1,0 +1,29 @@
+# HELP nv_inference_request_success Number of successful inference requests
+# TYPE nv_inference_request_success counter
+nv_inference_request_success{model="resnet50",version="1"} 15234
+nv_inference_request_success{model="bert-base",version="1"} 8921
+nv_inference_request_success{model="gpt2",version="1"} 3456
+# HELP nv_inference_request_failure Number of failed inference requests
+# TYPE nv_inference_request_failure counter
+nv_inference_request_failure{model="resnet50",version="1"} 12
+nv_inference_request_failure{model="bert-base",version="1"} 45
+nv_inference_request_failure{model="gpt2",version="1"} 3
+# HELP nv_inference_request_duration_us Inference request duration in microseconds
+# TYPE nv_inference_request_duration_us counter
+nv_inference_request_duration_us{model="resnet50",version="1"} 4567890
+nv_inference_request_duration_us{model="bert-base",version="1"} 12345678
+nv_inference_request_duration_us{model="gpt2",version="1"} 89012345
+# HELP nv_inference_queue_duration_us Queue wait duration in microseconds
+# TYPE nv_inference_queue_duration_us counter
+nv_inference_queue_duration_us{model="resnet50",version="1"} 234567
+nv_inference_queue_duration_us{model="bert-base",version="1"} 567890
+nv_inference_queue_duration_us{model="gpt2",version="1"} 1234567
+# HELP nv_gpu_utilization GPU utilization
+# TYPE nv_gpu_utilization gauge
+nv_gpu_utilization{gpu_uuid="GPU-abc123"} 0.72
+# HELP nv_gpu_memory_used_bytes GPU memory used
+# TYPE nv_gpu_memory_used_bytes gauge
+nv_gpu_memory_used_bytes{gpu_uuid="GPU-abc123"} 8589934592
+# HELP nv_gpu_memory_total_bytes GPU memory total
+# TYPE nv_gpu_memory_total_bytes gauge
+nv_gpu_memory_total_bytes{gpu_uuid="GPU-abc123"} 17179869184

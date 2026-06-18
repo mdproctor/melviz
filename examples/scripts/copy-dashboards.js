@@ -56,6 +56,7 @@ const mockEndpoints = {
   'mock-data/quarkus-metrics.txt': 'data/quarkus/metrics',
   'mock-data/jupyterhub-metrics.txt': 'dashboards/jupyterhub/metrics/metrics',
   'mock-data/ansible-metrics.txt': 'data/metrics',
+  'mock-data/triton-metrics.txt': 'data/triton/metrics',
 };
 
 for (const [src, dest] of Object.entries(mockEndpoints)) {

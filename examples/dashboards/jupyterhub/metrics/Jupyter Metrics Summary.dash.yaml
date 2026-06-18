@@ -1,3 +1,5 @@
+properties:
+  metricsUrl: metrics
 global:
   displayer:
     chart:
@@ -12,7 +14,7 @@ global:
       uuid: metrics
 datasets:
   - uuid: metrics
-    url: metrics
+    url: ${metricsUrl}
     columns:
       - id: Metric
         type: LABEL

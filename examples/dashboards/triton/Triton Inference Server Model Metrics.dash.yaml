@@ -1,3 +1,5 @@
+properties:
+  metricsUrl: data/triton/metrics
 global:
   displayer:
     chart:
@@ -7,7 +9,7 @@ global:
         expression: value.replace(/[a-z_]+="|"/g, '').replace(/,$/,'')
 datasets:
   - uuid: metrics
-    url: data/metrics
+    url: ${metricsUrl}
     columns:
       - id: metric
         type: LABEL
