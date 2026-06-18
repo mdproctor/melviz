@@ -192,21 +192,21 @@ Webpack bundle. Host applications include `@casehub/runtime` as an npm dependenc
 
 ### Chapter 2: DashBuilder Demo Gallery (Epic #19)
 
-**Status:** 🟡 in progress — 28/31 dashboards render fully
+**Status:** ✅ complete — all issues closed
 
 | Issue | Title | Status |
 |---|---|---|
-| #20 | Dashboard demo runner — host page + dev server | 🔲 open (work done, needs closure) |
-| #21 | Wire axis and grid settings | 🔲 open (work done, needs closure) |
-| #14 | Markdown parser | 🔲 open |
+| #20 | Dashboard demo runner — host page + dev server | ✅ closed |
+| #21 | Wire axis and grid settings | ✅ closed |
+| #14 | Markdown parser | ✅ closed |
 | #22 | Migrate and validate DashBuilder samples | ✅ closed |
 | #25 | Global displayer defaults | ✅ closed |
 | #26 | Inline content extraction | ✅ closed |
-| #27 | Navigation types: tree, menu, tiles | 🔲 open (tree/menu/tiles done) |
-| #28 | fetch this-binding in webpack | 🔲 open (fix committed) |
+| #27 | Navigation types: tree, menu, tiles | ✅ closed |
+| #28 | fetch this-binding in webpack | ✅ closed |
 | #30 | Canonical kie-samples versions | ✅ closed |
 | #31 | Case-insensitive column matching | ✅ closed |
-| #32 | Tab navigation duplicates | 🔲 open (lazy rendering implemented) |
+| #32 | Tab navigation duplicates | ✅ closed |
 | #33 | Mock data for Prometheus dashboards | ✅ closed |
 
 ### Backlog
@@ -221,7 +221,7 @@ Webpack bundle. Host applications include `@casehub/runtime` as an npm dependenc
 | #24 | Epic: Move to casehubio org | 🔲 open |
 | #29 | Gallery URL configuration form | 🔲 open |
 | #34 | Type-safe TypeScript audit | 🔲 open |
-| #35 | Prometheus API response extraction | 🔲 open |
+| #35 | Prometheus API response extraction | ✅ closed |
 
 ---
 
@@ -252,7 +252,7 @@ Decisions not captured inline in §4:
 | Risk | Impact | Mitigation |
 |---|---|---|
 | `new Function()` requires CSP `unsafe-eval` | Blocks deployment in strict CSP environments | Column expressions could be moved to a sandboxed evaluator (#3 JSONata bridge) |
-| 3 dashboards still partial/failing | Prometheus format + map component gaps | #35 tracks Prometheus extraction |
+| Kitchensink map component rendering | `regions` property undefined — map tab empty | Map page is an orphan (commented out of navTree) |
 | GWT core still in repo | Build complexity, dual maintenance | #24 tracks org move and cleanup |
 
 ---
