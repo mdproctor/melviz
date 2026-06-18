@@ -1,0 +1,132 @@
+[
+  {
+    "Id": "c1a2b3",
+    "Names": [
+      "/web-proxy"
+    ],
+    "Image": "docker.io/library/nginx:latest",
+    "Created": 1718100000,
+    "State": "running",
+    "Status": "Up 2 days"
+  },
+  {
+    "Id": "c4d5e6",
+    "Names": [
+      "/web-app"
+    ],
+    "Image": "docker.io/library/nginx:latest",
+    "Created": 1718090000,
+    "State": "running",
+    "Status": "Up 2 days"
+  },
+  {
+    "Id": "c7f8g9",
+    "Names": [
+      "/api-gateway"
+    ],
+    "Image": "docker.io/library/nginx:latest",
+    "Created": 1718080000,
+    "State": "running",
+    "Status": "Up 1 day"
+  },
+  {
+    "Id": "d1a2b3",
+    "Names": [
+      "/postgres-main"
+    ],
+    "Image": "docker.io/library/postgres:15",
+    "Created": 1718070000,
+    "State": "running",
+    "Status": "Up 3 days"
+  },
+  {
+    "Id": "d4e5f6",
+    "Names": [
+      "/postgres-replica"
+    ],
+    "Image": "docker.io/library/postgres:15",
+    "Created": 1718060000,
+    "State": "running",
+    "Status": "Up 3 days"
+  },
+  {
+    "Id": "e1a2b3",
+    "Names": [
+      "/cache"
+    ],
+    "Image": "docker.io/library/redis:7",
+    "Created": 1718050000,
+    "State": "running",
+    "Status": "Up 5 days"
+  },
+  {
+    "Id": "f1a2b3",
+    "Names": [
+      "/frontend"
+    ],
+    "Image": "docker.io/library/node:20",
+    "Created": 1718040000,
+    "State": "running",
+    "Status": "Up 1 day"
+  },
+  {
+    "Id": "f4e5f6",
+    "Names": [
+      "/backend"
+    ],
+    "Image": "docker.io/library/node:20",
+    "Created": 1718030000,
+    "State": "running",
+    "Status": "Up 1 day"
+  },
+  {
+    "Id": "f7g8h9",
+    "Names": [
+      "/worker-1"
+    ],
+    "Image": "docker.io/library/node:20",
+    "Created": 1718020000,
+    "State": "exited",
+    "Status": "Exited (0) 3 hours ago"
+  },
+  {
+    "Id": "f0a1b2",
+    "Names": [
+      "/worker-2"
+    ],
+    "Image": "docker.io/library/node:20",
+    "Created": 1718010000,
+    "State": "exited",
+    "Status": "Exited (1) 1 hour ago"
+  },
+  {
+    "Id": "g1a2b3",
+    "Names": [
+      "/keycloak"
+    ],
+    "Image": "quay.io/keycloak/keycloak:24",
+    "Created": 1718000000,
+    "State": "paused",
+    "Status": "Up 4 days (Paused)"
+  },
+  {
+    "Id": "h1a2b3",
+    "Names": [
+      "/grafana"
+    ],
+    "Image": "docker.io/grafana/grafana:11",
+    "Created": 1717990000,
+    "State": "running",
+    "Status": "Up 6 days"
+  },
+  {
+    "Id": "h4e5f6",
+    "Names": [
+      "/grafana-renderer"
+    ],
+    "Image": "docker.io/grafana/grafana:11",
+    "Created": 1717980000,
+    "State": "running",
+    "Status": "Up 6 days"
+  }
+]

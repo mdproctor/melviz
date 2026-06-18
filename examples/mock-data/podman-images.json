@@ -1,0 +1,65 @@
+[
+  {
+    "Id": "sha256:abc123",
+    "Names": [
+      "docker.io/library/nginx:latest"
+    ],
+    "Created": 1718000000,
+    "Size": 142000000,
+    "Containers": 3
+  },
+  {
+    "Id": "sha256:def456",
+    "Names": [
+      "docker.io/library/postgres:15"
+    ],
+    "Created": 1717900000,
+    "Size": 378000000,
+    "Containers": 2
+  },
+  {
+    "Id": "sha256:ghi789",
+    "Names": [
+      "docker.io/library/redis:7"
+    ],
+    "Created": 1717800000,
+    "Size": 38000000,
+    "Containers": 1
+  },
+  {
+    "Id": "sha256:jkl012",
+    "Names": [
+      "docker.io/library/node:20"
+    ],
+    "Created": 1717700000,
+    "Size": 1050000000,
+    "Containers": 4
+  },
+  {
+    "Id": "sha256:mno345",
+    "Names": [
+      "quay.io/keycloak/keycloak:24"
+    ],
+    "Created": 1717600000,
+    "Size": 450000000,
+    "Containers": 1
+  },
+  {
+    "Id": "sha256:pqr678",
+    "Names": [
+      "docker.io/library/httpd:2.4"
+    ],
+    "Created": 1717500000,
+    "Size": 168000000,
+    "Containers": 0
+  },
+  {
+    "Id": "sha256:stu901",
+    "Names": [
+      "docker.io/grafana/grafana:11"
+    ],
+    "Created": 1717400000,
+    "Size": 412000000,
+    "Containers": 2
+  }
+]

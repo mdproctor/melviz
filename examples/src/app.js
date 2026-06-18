@@ -182,11 +182,11 @@ async function loadDashboardInTarget(dashboardPath) {
             } catch {
                 const urlStr = typeof url === 'string' ? url : url.toString();
                 const isRangeQuery = urlStr.includes('[') || urlStr.includes('%5B');
-                const mockFile = !urlStr.includes('/api/v1/query')
-                    ? 'prometheus-metrics.txt'
-                    : isRangeQuery
-                        ? 'prometheus-api-matrix.json'
-                        : 'prometheus-api-response.json';
+                let mockFile = 'prometheus-metrics.txt';
+                if (urlStr.includes('/images/json')) mockFile = 'podman-images.json';
+                else if (urlStr.includes('/containers/json')) mockFile = 'podman-containers.json';
+                else if (urlStr.includes('/api/v1/query') && isRangeQuery) mockFile = 'prometheus-api-matrix.json';
+                else if (urlStr.includes('/api/v1/query')) mockFile = 'prometheus-api-response.json';
                 const mockResp = await fetch(`${window.location.origin}/mock-data/${mockFile}`);
                 return mockResp;
             }
