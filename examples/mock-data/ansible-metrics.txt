@@ -1,0 +1,48 @@
+# HELP awx_sessions_total Number of sessions
+# TYPE awx_sessions_total gauge
+awx_sessions_total{type="all"} 24
+awx_sessions_total{type="user"} 18
+awx_sessions_total{type="anonymous"} 6
+# HELP awx_users_total Number of users
+# TYPE awx_users_total gauge
+awx_users_total 47
+# HELP awx_teams_total Number of teams
+# TYPE awx_teams_total gauge
+awx_teams_total 8
+# HELP awx_organizations_total Number of organizations
+# TYPE awx_organizations_total gauge
+awx_organizations_total 3
+# HELP awx_inventories_total Number of inventories
+# TYPE awx_inventories_total gauge
+awx_inventories_total 12
+# HELP awx_projects_total Number of projects
+# TYPE awx_projects_total gauge
+awx_projects_total 15
+# HELP awx_job_templates_total Number of job templates
+# TYPE awx_job_templates_total gauge
+awx_job_templates_total 34
+# HELP awx_inventory_scripts_total Number of inventory scripts
+# TYPE awx_inventory_scripts_total gauge
+awx_inventory_scripts_total 5
+# HELP awx_running_jobs_total Number of running jobs
+# TYPE awx_running_jobs_total gauge
+awx_running_jobs_total 3
+# HELP awx_pending_jobs_total Number of pending jobs
+# TYPE awx_pending_jobs_total gauge
+awx_pending_jobs_total 7
+# HELP awx_hosts_total Number of hosts
+# TYPE awx_hosts_total gauge
+awx_hosts_total{type="all"} 142
+awx_hosts_total{type="active"} 98
+# HELP awx_schedules_total Number of schedules
+# TYPE awx_schedules_total gauge
+awx_schedules_total 21
+# HELP awx_custom_virtualenvs_total Number of virtual environments
+# TYPE awx_custom_virtualenvs_total gauge
+awx_custom_virtualenvs_total 4
+# HELP awx_instance_capacity Instance capacity
+# TYPE awx_instance_capacity gauge
+awx_instance_capacity 200
+# HELP awx_instance_remaining_capacity Instance remaining capacity
+# TYPE awx_instance_remaining_capacity gauge
+awx_instance_remaining_capacity 157

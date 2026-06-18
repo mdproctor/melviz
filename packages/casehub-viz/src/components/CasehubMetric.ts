@@ -39,12 +39,16 @@ export class CasehubMetric extends CasehubElement<MetricProps> {
     container.appendChild(style);
 
     // Extract value and title
+    const title = props.title ?? "";
+    if (dataset.columns.length === 0 || dataset.rows.length === 0) {
+      this.renderCard(container, title, "—");
+      return;
+    }
     const colId = dataset.columns[0]!.id;
     let raw = cellToRaw(dataset.rows[0]!.cell(colId));
     const expr = resolveColumnExpression(colId, props.columns);
     if (expr) raw = applyCellExpression(raw, expr);
     const value = raw === null ? "" : String(raw);
-    const title = props.title ?? "";
 
     // HTML template override
     if (props.html?.template) {

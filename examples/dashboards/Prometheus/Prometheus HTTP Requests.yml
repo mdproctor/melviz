@@ -16,10 +16,9 @@ datasets:
       url: ${prometheusUrl}/api/v1/query?query=prometheus_http_requests_total
 pages:
     - rows:
-          # Row 1: Header + filter
+          # Row 1: Header
           - columns:
-                - span: "9"
-                  components:
+                - components:
                       - properties:
                             background-color: "#1a1a2e"
                             color: white
@@ -29,6 +28,11 @@ pages:
                         html: >-
                             <strong style="font-size: 20px; font-family: sans-serif;">Prometheus HTTP Requests</strong>
                             <br/><span style="opacity: 0.7; font-size: 13px;">Real-time HTTP endpoint monitoring</span>
+
+          # Row 1b: Filter
+          - properties:
+                margin-bottom: 12px
+            columns:
                 - span: "3"
                   components:
                       - html: "Filter by Handler"
@@ -38,7 +42,6 @@ pages:
                             margin-bottom: 4px
                       - properties:
                             width: "100%"
-                            margin-bottom: 16px
                         displayer:
                             type: SELECTOR
                             filter:
