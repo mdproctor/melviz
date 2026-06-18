@@ -64,12 +64,13 @@ describe("prometheus preset", () => {
     expect(result.columns).toEqual([
       { id: "timestamp", type: "number" },
       { id: "value", type: "number" },
+      { id: "__name__", type: "label" },
       { id: "instance", type: "label" },
       { id: "job", type: "label" },
     ]);
     expect(result.values).toHaveLength(2);
-    expect(result.values[0]).toEqual([1686700000000, "1", "localhost:9090", "prometheus"]);
-    expect(result.values[1]).toEqual([1686700000000, "0", "localhost:9100", "node"]);
+    expect(result.values[0]).toEqual([1686700000000, "1", "up", "localhost:9090", "prometheus"]);
+    expect(result.values[1]).toEqual([1686700000000, "0", "up", "localhost:9100", "node"]);
   });
 
   it("transforms matrix response — timestamps *1000, string values", async () => {

@@ -1,0 +1,106 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "GET",
+          "handler": "/api/v1/query",
+          "code": "200",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "2847"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "POST",
+          "handler": "/api/v1/query",
+          "code": "200",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "1542"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "GET",
+          "handler": "/metrics",
+          "code": "200",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "7234"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "GET",
+          "handler": "/api/v1/labels",
+          "code": "200",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "698"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "GET",
+          "handler": "/api/v1/query",
+          "code": "400",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "127"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "GET",
+          "handler": "/api/v1/query_range",
+          "code": "200",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "423"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "prometheus_http_requests_total",
+          "method": "GET",
+          "handler": "/api/v1/query",
+          "code": "503",
+          "job": "prometheus",
+          "instance": "localhost:9090"
+        },
+        "value": [
+          1718546059,
+          "3"
+        ]
+      }
+    ]
+  }
+}

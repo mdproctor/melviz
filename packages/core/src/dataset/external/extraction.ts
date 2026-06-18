@@ -32,6 +32,14 @@ function looksLikeIsoDate(value: string): boolean {
 
 const PROMETHEUS_LINE_RE = /^[a-zA-Z_:][a-zA-Z0-9_:]*(?:\{[^}]*\})?\s+[\d.eE+\-NnaI]+/m;
 
+function looksLikePrometheusApi(data: unknown): boolean {
+  if (data === null || typeof data !== "object") return false;
+  const obj = data as Record<string, unknown>;
+  if (obj["status"] !== "success" || typeof obj["data"] !== "object" || obj["data"] === null) return false;
+  const inner = obj["data"] as Record<string, unknown>;
+  return typeof inner["resultType"] === "string" && Array.isArray(inner["result"]);
+}
+
 function looksLikePrometheus(raw: string): boolean {
   const lines = raw.split("\n");
   for (const line of lines) {
@@ -185,6 +193,18 @@ async function navigateAndExtract(
         `Preset "${def.type}" evaluation failed: ${e instanceof Error ? e.message : String(e)}`,
         e,
       );
+    }
+  }
+
+  // 2b-auto. Auto-detect Prometheus API response when no type was specified.
+  // Matches {status: "success", data: {resultType: "...", result: [...]}}
+  if (def.type === undefined && looksLikePrometheusApi(current)) {
+    const preset = presetRegistry.get("prometheus");
+    if (preset) {
+      try {
+        const compiled = compileOrCached(preset.expression);
+        current = await compiled.evaluate(current);
+      } catch { /* fall through to normal extraction */ }
     }
   }
 

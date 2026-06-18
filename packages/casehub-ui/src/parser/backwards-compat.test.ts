@@ -67,9 +67,10 @@ describe("backwards compatibility — existing dashboards", () => {
       expect(root.type).toBe("page");
     });
 
-    it("top-level pages exclude navTree-embedded pages", () => {
+    it("only root page is top-level when navTree is present", () => {
       const pages = root.slots!["content"]!;
-      expect(pages.length).toBe(4);
+      // navTree present — only first page (index) is top-level
+      expect(pages.length).toBe(1);
     });
 
     it("has datasets on root props", () => {
@@ -100,14 +101,15 @@ describe("backwards compatibility — existing dashboards", () => {
     });
 
     it("handles external components (EXTERNAL type)", () => {
-      const formsPage = root.slots!["content"]!.find(
-        (p) => (p.props as Record<string, unknown>)?.["name"] === "Forms",
-      )!;
-      expect(formsPage).toBeDefined();
-      const externalItem = formsPage.items!.find(
+      // Forms page is orphaned (not in any navTree group) — unreachable in the
+      // rendered tree, same as GWT. Verify EXTERNAL → iframe-plugin desugaring
+      // works by finding any iframe-plugin in the full tree.
+      const echartsPage = findPageByName(root, "ECharts")!;
+      expect(echartsPage).toBeDefined();
+      const iframeItem = echartsPage.items!.find(
         (item) => item.component.type === "iframe-plugin",
       );
-      expect(externalItem).toBeDefined();
+      expect(iframeItem).toBeDefined();
     });
 
     it("handles displayer with external component (echarts)", () => {
@@ -141,7 +143,7 @@ describe("backwards compatibility — existing dashboards", () => {
   });
 
   describe("navTree page filtering — pages in groups excluded from top-level", () => {
-    it("only pages not in any navTree group appear at top level", () => {
+    it("only root page is top-level when navTree is present", () => {
       const yaml = {
         pages: [
           { name: "index", components: [{ type: "TABS", properties: { navGroupId: "Main", targetDivId: "target" } }, { div: "target" }] },
@@ -156,10 +158,7 @@ describe("backwards compatibility — existing dashboards", () => {
       const root = parsePage(yaml);
       const topLevel = root.slots!["content"]!;
       const topLevelNames = topLevel.map((p: Component) => (p.props as Record<string, unknown>)?.["name"]);
-      expect(topLevelNames).toContain("index");
-      expect(topLevelNames).toContain("Orphan");
-      expect(topLevelNames).not.toContain("Dashboard");
-      expect(topLevelNames).not.toContain("Settings");
+      expect(topLevelNames).toEqual(["index"]);
     });
 
     it("navTree-embedded pages still accessible through navigation slots", () => {

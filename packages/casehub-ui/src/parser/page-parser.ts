@@ -1,7 +1,7 @@
 import type { Component, GridItem } from "../model/types.js";
 import { substituteProperties } from "./property-substitution.js";
 import { desugarComponent } from "./component-desugar.js";
-import { resolveNavigation, collectNavTreePageNames } from "./nav-desugar.js";
+import { resolveNavigation, collectNavTreePageNames, collectNavTreeGroupIds } from "./nav-desugar.js";
 
 /**
  * Main entry point for parsing raw YAML dashboard objects into the Component model.
@@ -67,6 +67,19 @@ export function parsePage(raw: unknown): Component {
   });
 
   // 6. Resolve navigation within each page's grid items
+  // Pre-scan: identify non-root pages with nav components referencing navTree groups.
+  // Must run BEFORE resolveNavigation strips navGroupId from resolved components.
+  // Skip the first page — it's the entry point and is expected to reference navTree groups.
+  const navTreeGroupIds = collectNavTreeGroupIds(navTree);
+  const navOrphanPageNames = new Set<string>();
+  for (let i = 1; i < childPages.length; i++) {
+    const page = childPages[i]!;
+    const name = page.props?.["name"] as string | undefined;
+    if (name && containsNavGroupRef(page, navTreeGroupIds)) {
+      navOrphanPageNames.add(name);
+    }
+  }
+
   // Track pages embedded via page-ref so they can be excluded from top-level
   const embeddedPageNames = new Set<string>();
   const resolvedPages = childPages.map((page) => {
@@ -136,16 +149,23 @@ export function parsePage(raw: unknown): Component {
   }
   const patchedPages = resolvedPages.map((page) => patchSlotReferences(page, resolvedByName));
 
-  // 6c. Remove pages embedded via page-ref OR navTree from the top-level slot.
-  // Pages in navTree groups are rendered as slots inside their navigation container —
-  // including them at the top level creates duplicate DOM trees.
+  // 6c. Remove non-root pages from top-level when navTree is present.
+  // In navTree-based dashboards, only the first page is the entry point —
+  // all other pages are accessed via navigation components. Rendering them
+  // at the top level duplicates content (e.g. Carousel with navGroupId,
+  // orphaned Map/Forms pages).
   const navTreePageNames = collectNavTreePageNames(navTree);
   for (const name of navTreePageNames) {
     embeddedPageNames.add(name);
   }
-  const topLevelPages = embeddedPageNames.size > 0
-    ? patchedPages.filter((p) => !embeddedPageNames.has(p.props?.["name"] as string))
-    : patchedPages;
+  let topLevelPages: Component[];
+  if (navTreePageNames.size > 0) {
+    topLevelPages = patchedPages.length > 0 ? [patchedPages[0]!] : [];
+  } else if (embeddedPageNames.size > 0) {
+    topLevelPages = patchedPages.filter((p) => !embeddedPageNames.has(p.props?.["name"] as string));
+  } else {
+    topLevelPages = patchedPages;
+  }
 
   // 7. Build root page with settings and datasets
   const rootProps: Record<string, unknown> = { name: "root" };
@@ -383,4 +403,28 @@ function patchSlotReferences(
 
   if (!changed) return component;
   return { ...component, ...(newItems !== component.items ? { items: newItems } : {}), ...(newSlots !== component.slots ? { slots: newSlots } : {}) };
+}
+
+function containsNavGroupRef(page: Component, navTreeGroupIds: Set<string>): boolean {
+  if (navTreeGroupIds.size === 0) return false;
+  const check = (comp: Component): boolean => {
+    const groupId = comp.props?.["navGroupId"] as string | undefined;
+    if (groupId && navTreeGroupIds.has(groupId)) return true;
+    if (comp.items) {
+      for (const item of comp.items) {
+        if (check(item.component)) return true;
+      }
+    }
+    if (comp.slots) {
+      for (const slotComps of Object.values(comp.slots)) {
+        if (slotComps) {
+          for (const sc of slotComps) {
+            if (check(sc)) return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+  return check(page);
 }

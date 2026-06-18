@@ -2,6 +2,62 @@ import type { Component } from "../model/types.js";
 import { slotSwapRegistry, dispatchSlotChange } from "./slot-swap.js";
 import type { SwapFn } from "./slot-swap.js";
 
+let stylesInjected = false;
+function injectTabStyles(doc: Document): void {
+  if (stylesInjected) return;
+  stylesInjected = true;
+  const style = doc.createElement("style");
+  style.textContent = `
+[data-tab-bar] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0 12px;
+}
+[data-tab-bar] button[data-slot] {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 16px;
+  border: 1px solid #d0d5dd;
+  border-radius: 20px;
+  background: #fff;
+  color: #475467;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+}
+[data-tab-bar] button[data-slot]:hover {
+  background: #f2f4f7;
+  border-color: #98a2b3;
+  color: #344054;
+}
+[data-tab-bar] button[data-slot][data-active] {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #fff;
+}
+[data-tab-bar] button[data-slot][data-active]:hover {
+  background: #4338ca;
+  border-color: #4338ca;
+}
+.casehub-sidebar {
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 12px 0 0;
+  border-right: 1px solid #e5e7eb;
+  min-width: 140px;
+}
+.casehub-sidebar button[data-slot] {
+  border-radius: 8px;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+}
+`;
+  doc.head.appendChild(style);
+}
+
 export interface LazyConfig {
   readonly slotChildren: Readonly<Record<string, readonly Component[]>>;
   readonly renderSlot: (
@@ -132,6 +188,7 @@ function wireTabs(
   doc: Document,
   lazy?: LazyConfig,
 ): void {
+  injectTabStyles(doc);
   const bar = doc.createElement("div");
   bar.dataset.tabBar = "";
   bar.className = type === "pills" ? "casehub-pills"
@@ -174,6 +231,7 @@ function wireSidebar(
   doc: Document,
   lazy?: LazyConfig,
 ): void {
+  injectTabStyles(doc);
   const bar = doc.createElement("div");
   bar.dataset.tabBar = "";
   bar.className = "casehub-sidebar";

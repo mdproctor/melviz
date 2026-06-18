@@ -249,3 +249,13 @@ function extractPageNames(group: NavTreeGroup): string[] {
 
   return names;
 }
+
+export function collectNavTreeGroupIds(navTree: unknown | undefined): Set<string> {
+  const ids = new Set<string>();
+  const typed = navTree as NavTree | undefined;
+  if (!typed?.root_items) return ids;
+  for (const group of typed.root_items) {
+    if (group.id) ids.add(group.id);
+  }
+  return ids;
+}

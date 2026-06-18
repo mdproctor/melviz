@@ -7,7 +7,7 @@ const METRIC_CSS = `
 :host { display: block; font-family: var(--casehub-font, system-ui, sans-serif); color: var(--casehub-text, #333); }
 .card { background: var(--casehub-bg, #fff); border: 1px solid var(--casehub-border, #e0e0e0); border-radius: var(--casehub-radius, 4px); padding: 20px 16px; text-align: center; min-height: 80px; display: flex; flex-direction: column; justify-content: center; }
 .card .title { font-size: 0.85em; color: var(--casehub-text-muted, #888); margin-bottom: 8px; }
-.card .value { font-size: 2em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.card .value { font-size: 2em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card2 { display: flex; align-items: center; gap: 12px; background: var(--casehub-bg, #fff); border: 1px solid var(--casehub-border, #e0e0e0); border-radius: var(--casehub-radius, 4px); padding: 12px 16px; }
 .card2 .value { font-size: 1.5em; font-weight: 600; }
 .card2 .title { font-size: 0.85em; color: var(--casehub-text-muted, #888); }

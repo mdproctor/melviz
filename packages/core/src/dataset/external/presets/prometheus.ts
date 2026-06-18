@@ -4,16 +4,13 @@ import type { ExtractionPreset } from "../types.js";
 // Operates on the full Prometheus HTTP API response (status + data).
 // Returns Shape A: { columns: [...], values: [...] }
 //
-// Key differences from Java version:
-// - Excludes __name__ metric label (it's redundant metadata, not a data column)
-// - Timestamps are multiplied by 1000 (Unix seconds -> milliseconds)
+// Timestamps are multiplied by 1000 (Unix seconds -> milliseconds)
 //
 // JSONata note: the .[expr1, expr2, seq.*] syntax is essential —
 // it creates one sub-array per mapping element, unlike (...) blocks which flatten.
 const expr = [
   "$.data.(",
-  '  $filterName := function($v, $k) { $k != "__name__" };',
-  '  $labelKeys := resultType = "scalar" ? [] : $keys(result[0].metric) ~> $filter(function($k) { $k != "__name__" });',
+  '  $labelKeys := resultType = "scalar" ? [] : $keys(result[0].metric);',
   "  {",
   '    "columns": $append(',
   '      [{"id": "timestamp", "type": "number"}, {"id": "value", "type": "number"}],',
@@ -21,7 +18,7 @@ const expr = [
   "    ),",
   '    "values": (',
   '      resultType = "vector"',
-  "        ? result.[value[0] * 1000, value[1], (metric ~> $sift($filterName)).*]",
+  "        ? result.[value[0] * 1000, value[1], metric.*]",
   '        : resultType = "matrix"',
   "          ? result.($m := metric; values.[$[0] * 1000, $[1], $m.*])",
   "          : [[ result[0] * 1000, result[1] ]]",

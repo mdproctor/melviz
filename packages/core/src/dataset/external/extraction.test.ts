@@ -447,4 +447,113 @@ describe("extractDataSet", () => {
     expect(result.dataset.columns[0]!.id).toBe("Column 0");
     expect(result.dataset.columns[1]!.id).toBe("Column 1");
   });
+
+  // --- Prometheus API response (type: prometheus) ---
+
+  it("extracts Prometheus API vector response via type preset", async () => {
+    const apiResponse = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          {
+            metric: { __name__: "http_requests_total", handler: "/api/v1/query", code: "200" },
+            value: [1718546000, "1027"],
+          },
+          {
+            metric: { __name__: "http_requests_total", handler: "/metrics", code: "200" },
+            value: [1718546000, "8934"],
+          },
+          {
+            metric: { __name__: "http_requests_total", handler: "/api/v1/query", code: "400" },
+            value: [1718546000, "12"],
+          },
+        ],
+      },
+    };
+    const result = await extractDataSet(
+      fetchResult(apiResponse, "application/json"),
+      def({ type: "prometheus", url: "http://localhost:9090/api/v1/query?query=prometheus_http_requests_total" }),
+      registry,
+    );
+
+    expect(result.dataset.columns.map(c => c.id)).toEqual(["timestamp", "value", "__name__", "handler", "code"]);
+    expect(result.dataset.rows).toHaveLength(3);
+    expect(result.dataset.rows[0]!.cell("handler" as ColumnId).value).toBe("/api/v1/query");
+    expect(result.dataset.rows[0]!.cell("code" as ColumnId).value).toBe("200");
+    expect(result.dataset.rows[0]!.cell("__name__" as ColumnId).value).toBe("http_requests_total");
+  });
+
+  it("extracts Prometheus API matrix response via type preset", async () => {
+    const apiResponse = {
+      status: "success",
+      data: {
+        resultType: "matrix",
+        result: [
+          {
+            metric: { __name__: "go_gc_heap_live_bytes", instance: "localhost:9090" },
+            values: [
+              [1718546000, "4194304"],
+              [1718546060, "4456448"],
+            ],
+          },
+        ],
+      },
+    };
+    const result = await extractDataSet(
+      fetchResult(apiResponse),
+      def({ type: "prometheus" }),
+      registry,
+    );
+
+    expect(result.dataset.columns.map(c => c.id)).toEqual(["timestamp", "value", "__name__", "instance"]);
+    expect(result.dataset.rows).toHaveLength(2);
+    expect(result.dataset.rows[0]!.cell("__name__" as ColumnId).value).toBe("go_gc_heap_live_bytes");
+    expect(result.dataset.rows[0]!.cell("instance" as ColumnId).value).toBe("localhost:9090");
+  });
+
+  it("auto-detects Prometheus API format when type is not specified", async () => {
+    const apiResponse = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          { metric: { handler: "/query", code: "200" }, value: [1718546000, "100"] },
+        ],
+      },
+    };
+    const result = await extractDataSet(
+      fetchResult(apiResponse),
+      def(),
+      registry,
+    );
+
+    expect(result.dataset.columns.map(c => c.id)).toContain("handler");
+    expect(result.dataset.columns.map(c => c.id)).toContain("code");
+    expect(result.dataset.rows).toHaveLength(1);
+  });
+
+  it("Prometheus vector response supports filtering by label column", async () => {
+    const apiResponse = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          { metric: { handler: "/query", code: "200" }, value: [1718546000, "100"] },
+          { metric: { handler: "/query", code: "400" }, value: [1718546000, "5"] },
+          { metric: { handler: "/metrics", code: "200" }, value: [1718546000, "900"] },
+        ],
+      },
+    };
+    const result = await extractDataSet(
+      fetchResult(apiResponse),
+      def({ type: "prometheus" }),
+      registry,
+    );
+
+    const codeCol = result.dataset.columns.find(c => c.id === "code");
+    expect(codeCol).toBeDefined();
+    const row200 = result.dataset.rows.filter(r => r.cell("code" as ColumnId).value === "200");
+    expect(row200).toHaveLength(2);
+  });
 });

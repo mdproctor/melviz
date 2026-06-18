@@ -13,30 +13,175 @@ datasets:
     - uuid: prometheus
       type: prometheus
       url: ${prometheusUrl}/api/v1/query?query=${query}
+    - uuid: prometheus_instant
+      type: prometheus
+      url: ${prometheusUrl}/api/v1/query?query=prometheus_http_requests_total
 pages:
-    - components:
-          - markdown: |
-                **Prometheus Generic Dashboard**
-                <br /><br />
+    - rows:
+          # Row 1: Header
+          - columns:
+                - components:
+                      - properties:
+                            background-color: "#e65100"
+                            color: white
+                            padding: 16px 24px
+                            border-radius: 8px
+                            margin-bottom: 16px
+                        html: >-
+                            <strong style="font-size: 20px; font-family: sans-serif;">Prometheus Metrics Explorer</strong>
+                            <br/><span style="opacity: 0.8; font-size: 13px;">Query: <code>${query}</code> &middot; Source: <code>${prometheusUrl}</code></span>
 
+          # Row 2: Summary metrics
+          - properties:
+                margin-bottom: 24px
+            columns:
+                - span: "3"
+                  components:
+                      - displayer:
+                            type: METRIC
+                            general:
+                                title: "Data Points"
+                            lookup:
+                                uuid: prometheus
+                                group:
+                                    - functions:
+                                          - source: value
+                                            function: COUNT
+                - span: "3"
+                  properties:
+                      color: "#e65100"
+                  components:
+                      - displayer:
+                            type: METRIC
+                            general:
+                                title: "Max Value"
+                            columns:
+                                - id: value
+                                  pattern: "#,000"
+                            lookup:
+                                uuid: prometheus
+                                group:
+                                    - functions:
+                                          - source: value
+                                            function: MAX
+                - span: "3"
+                  properties:
+                      color: "#2e7d32"
+                  components:
+                      - displayer:
+                            type: METRIC
+                            general:
+                                title: "Min Value"
+                            columns:
+                                - id: value
+                                  pattern: "#,000"
+                            lookup:
+                                uuid: prometheus
+                                group:
+                                    - functions:
+                                          - source: value
+                                            function: MIN
+                - span: "3"
+                  properties:
+                      color: "#1565c0"
+                  components:
+                      - displayer:
+                            type: METRIC
+                            general:
+                                title: "Average"
+                            columns:
+                                - id: value
+                                  pattern: "#,000.00"
+                            lookup:
+                                uuid: prometheus
+                                group:
+                                    - functions:
+                                          - source: value
+                                            function: AVERAGE
 
-                This is a generic dashboard that can be used to display any Prometheus query.
-                <br />
-                To use it, simply set the `prometheusUrl` and `query` properties at the top of this file.
-                <br /><br />
-                **Query**: *${query}*<br />
-                **URL**: *${prometheusUrl}*
+          # Row 3: Timeseries
+          - properties:
+                margin-bottom: 24px
+            columns:
+                - components:
+                      - displayer:
+                            type: TIMESERIES
+                            general:
+                                title: "Metric Values Over Time"
+                            chart:
+                                height: 350
+                            lookup:
+                                uuid: prometheus
+                                group:
+                                    - functions:
+                                          - source: __name__
+                                          - source: timestamp
+                                          - source: value
 
-          - displayer:
-                table:
-                    sort:
-                        enabled: true
-                    show_column_picker: true
-          - displayer:
-                type: timeseries
-                lookup:
-                    group:
-                        - functions:
-                              - source: __name__
-                              - source: timestamp
-                              - source: value
+          # Row 4: Area chart + Bar chart
+          - properties:
+                margin-bottom: 24px
+            columns:
+                - span: "6"
+                  components:
+                      - displayer:
+                            type: AREACHART
+                            general:
+                                title: "Value Distribution (Area)"
+                            chart:
+                                height: 280
+                            lookup:
+                                uuid: prometheus
+                                group:
+                                    - functions:
+                                          - source: handler
+                                          - source: timestamp
+                                          - source: value
+                - span: "6"
+                  components:
+                      - displayer:
+                            type: BARCHART
+                            general:
+                                title: "Total by Endpoint"
+                            chart:
+                                height: 280
+                            lookup:
+                                uuid: prometheus_instant
+                                group:
+                                    - columnGroup:
+                                          source: handler
+                                      functions:
+                                          - source: handler
+                                          - source: value
+                                            function: SUM
+
+          # Row 5: Pie chart + Table
+          - columns:
+                - span: "4"
+                  components:
+                      - displayer:
+                            type: PIECHART
+                            general:
+                                title: "Request Share by Method"
+                            chart:
+                                height: 300
+                            lookup:
+                                uuid: prometheus_instant
+                                group:
+                                    - columnGroup:
+                                          source: method
+                                      functions:
+                                          - source: method
+                                          - source: value
+                                            function: SUM
+                - span: "8"
+                  components:
+                      - displayer:
+                            general:
+                                title: "Raw Metrics"
+                            table:
+                                sort:
+                                    enabled: true
+                                show_column_picker: true
+                            lookup:
+                                uuid: prometheus

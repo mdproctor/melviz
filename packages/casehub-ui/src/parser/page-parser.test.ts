@@ -623,6 +623,30 @@ describe("parsePage", () => {
       expect(pageNames).not.toContain("Charts");
     });
 
+    it("only root page is top-level when navTree is present", () => {
+      const root = parsePage({
+        pages: [
+          {
+            name: "index",
+            components: [
+              { type: "TABS", properties: { navGroupId: "Main", targetDivId: "d1" } },
+              { div: "d1" },
+            ],
+          },
+          { name: "Charts", components: [{ html: "charts" }] },
+          { name: "Carousel", components: [{ type: "CAROUSEL", properties: { navGroupId: "Main" } }] },
+          { name: "Orphan", components: [{ html: "orphan content" }] },
+        ],
+        navTree: {
+          root_items: [
+            { type: "GROUP", id: "Main", children: [{ page: "Charts" }] },
+          ],
+        },
+      });
+      const pageNames = root.slots!["content"]!.map(p => (p.props as any).name);
+      expect(pageNames).toEqual(["index"]);
+    });
+
     it("panel reference resolves to page content with title", () => {
       const root = parsePage({
         pages: [

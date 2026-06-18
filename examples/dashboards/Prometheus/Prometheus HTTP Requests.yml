@@ -2,47 +2,58 @@ properties:
     prometheusUrl: http://localhost:9090
     refreshInterval: 2
 global:
-    dataset:
-        type: prometheus
-        cacheEnabled: "true"
-        refreshTime: "${refreshInterval}second"
     displayer:
         refresh:
             interval: "${refreshInterval}"
         chart:
             resizable: true
-            height: 90
-        columns:
-            - id: value
-              pattern: "#,000"
 datasets:
     - uuid: recent_http_requests
+      type: prometheus
       url: ${prometheusUrl}/api/v1/query?query=prometheus_http_requests_total[1m:1s]
     - uuid: http_requests
+      type: prometheus
       url: ${prometheusUrl}/api/v1/query?query=prometheus_http_requests_total
 pages:
     - rows:
+          # Row 1: Header + filter
           - columns:
-                - components:
-                      - html: "Filter"
+                - span: "9"
+                  components:
+                      - properties:
+                            background-color: "#1a1a2e"
+                            color: white
+                            padding: 16px 24px
+                            border-radius: 8px
+                            margin-bottom: 16px
+                        html: >-
+                            <strong style="font-size: 20px; font-family: sans-serif;">Prometheus HTTP Requests</strong>
+                            <br/><span style="opacity: 0.7; font-size: 13px;">Real-time HTTP endpoint monitoring</span>
+                - span: "3"
+                  components:
+                      - html: "Filter by Handler"
                         properties:
                             font-weight: bolder
+                            font-size: 13px
+                            margin-bottom: 4px
                       - properties:
-                            width: "150px"
-                            margin-bottom: 20px
+                            width: "100%"
+                            margin-bottom: 16px
                         displayer:
                             type: SELECTOR
                             filter:
                                 notification: "true"
                             lookup:
-                                uuid: recent_http_requests
+                                uuid: http_requests
                                 group:
                                     - columnGroup:
                                           source: handler
                                       functions:
                                           - source: handler
+
+          # Row 2: Metric cards
           - properties:
-                margin-bottom: 60px
+                margin-bottom: 24px
             columns:
                 - span: "3"
                   components:
@@ -51,8 +62,7 @@ pages:
                             filter:
                                 listening: "true"
                             general:
-                                title: "All"
-                                visible: "true"
+                                title: "Total Requests"
                             chart:
                                 height: "90"
                             columns:
@@ -66,14 +76,17 @@ pages:
                                             function: SUM
                 - span: "3"
                   properties:
-                      color: blue
+                      color: "#2e7d32"
                   components:
                       - displayer:
                             type: METRIC
                             filter:
                                 listening: "true"
                             general:
-                                title: "Success"
+                                title: "Success (2xx)"
+                            columns:
+                                - id: value
+                                  pattern: "#,000"
                             lookup:
                                 uuid: http_requests
                                 filter:
@@ -87,14 +100,17 @@ pages:
                                             function: SUM
                 - span: "3"
                   properties:
-                      color: red
+                      color: "#d32f2f"
                   components:
                       - displayer:
                             type: METRIC
                             filter:
                                 listening: "true"
                             general:
-                                title: "Error"
+                                title: "Errors (4xx/5xx)"
+                            columns:
+                                - id: value
+                                  pattern: "#,000"
                             lookup:
                                 uuid: http_requests
                                 filter:
@@ -107,38 +123,38 @@ pages:
                                           - source: value
                                             function: SUM
                 - span: "3"
+                  properties:
+                      color: "#1565c0"
                   components:
                       - displayer:
                             type: METRIC
                             filter:
                                 listening: "true"
                             general:
-                                title: "Others"
-                                visible: "true"
-                            chart:
-                                height: "90"
-                            columns:
-                                - id: value
-                                  pattern: "#,000"
+                                title: "Endpoints"
                             lookup:
                                 uuid: http_requests
-                                filter:
-                                    - column: code
-                                      function: NOT_EQUALS_TO
-                                      args:
-                                          - 200
                                 group:
-                                    - functions:
-                                          - source: value
-                                            function: SUM
-          - columns:
-                - components:
+                                    - columnGroup:
+                                          source: handler
+                                      functions:
+                                          - source: handler
+                                            function: COUNT
+
+          # Row 3: Timeseries + Pie chart
+          - properties:
+                margin-bottom: 24px
+            columns:
+                - span: "8"
+                  components:
                       - displayer:
                             type: TIMESERIES
                             general:
-                                title: "HTTP Requests over Time"
+                                title: "Request Volume Over Time"
                             chart:
-                                height: 400
+                                height: 350
+                            filter:
+                                listening: "true"
                             lookup:
                                 uuid: recent_http_requests
                                 filter:
@@ -151,3 +167,83 @@ pages:
                                           - source: handler
                                           - source: timestamp
                                           - source: value
+                - span: "4"
+                  components:
+                      - displayer:
+                            type: DONUT
+                            general:
+                                title: "Requests by Endpoint"
+                            chart:
+                                height: 350
+                            filter:
+                                listening: "true"
+                            lookup:
+                                uuid: http_requests
+                                group:
+                                    - columnGroup:
+                                          source: handler
+                                      functions:
+                                          - source: handler
+                                          - source: value
+                                            function: SUM
+
+          # Row 4: Bar chart + Status code breakdown
+          - properties:
+                margin-bottom: 24px
+            columns:
+                - span: "6"
+                  components:
+                      - displayer:
+                            type: BARCHART
+                            general:
+                                title: "Requests by Handler"
+                            chart:
+                                height: 300
+                            filter:
+                                listening: "true"
+                            lookup:
+                                uuid: http_requests
+                                group:
+                                    - columnGroup:
+                                          source: handler
+                                      functions:
+                                          - source: handler
+                                          - source: value
+                                            function: SUM
+                - span: "6"
+                  components:
+                      - displayer:
+                            type: BARCHART
+                            subtype: BAR
+                            general:
+                                title: "Requests by Status Code"
+                            chart:
+                                height: 300
+                                margin:
+                                    left: 80
+                            filter:
+                                listening: "true"
+                            lookup:
+                                uuid: http_requests
+                                group:
+                                    - columnGroup:
+                                          source: code
+                                      functions:
+                                          - source: code
+                                          - source: value
+                                            function: SUM
+
+          # Row 5: Detail table
+          - columns:
+                - components:
+                      - displayer:
+                            general:
+                                title: "Request Details"
+                            table:
+                                sort:
+                                    enabled: true
+                                show_column_picker: true
+                            filter:
+                                listening: "true"
+                            lookup:
+                                uuid: http_requests
