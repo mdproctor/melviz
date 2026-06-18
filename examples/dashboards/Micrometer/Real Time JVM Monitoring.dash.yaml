@@ -13,6 +13,7 @@ datasets:
     url: ${metricsUrl}
     accumulate: true
     cacheMaxRows: 30000
+    refreshTime: 2second
     expression: >-
       $map($, function($v){
           [$v[0], $v[1], $v[2] = 'NaN' ? -1 : $v[2], $now() ~> $toMillis()]           

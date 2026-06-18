@@ -2,7 +2,7 @@ import type { Component, PermissionContext } from "@casehub/component/dist/model
 import { ALLOW_ALL } from "@casehub/component/dist/model/types.js";
 import { renderComponent } from "@casehub/component/dist/renderer/render.js";
 import { activateSlot } from "@casehub/component/dist/renderer/activate-slot.js";
-import type { DataSetId } from "@casehub/data/dist/dataset/types.js";
+import type { DataSetId, ColumnId } from "@casehub/data/dist/dataset/types.js";
 import type { DataProviderConfig, ExternalDataSetDef } from "@casehub/data/dist/dataset/external/types.js";
 import type { DataSetLookup } from "@casehub/data/dist/dataset/lookup.js";
 import type { DataSetOp } from "@casehub/data/dist/dataset/ops.js";
@@ -31,6 +31,7 @@ export interface LiveSite extends Site {
 export interface SiteOptions {
   readonly permissions?: PermissionContext;
   readonly fetch?: typeof globalThis.fetch;
+  readonly baseUrl?: string;
   readonly providerConfig?: DataProviderConfig;
 }
 
@@ -180,7 +181,7 @@ export async function loadSite(
       ?.filter as { group?: string } | undefined;
     const filterOps = getActiveFilterOps(filterState, entry.pagePath, filterGroup?.group);
     const existingOps = entry.originalLookup.operations.filter((op: DataSetOp) => op.type !== "sort");
-    const sortOp: DataSetOp = { type: "sort" as const, columnId, order };
+    const sortOp: DataSetOp = { type: "sort" as const, columns: [{ columnId: columnId as unknown as ColumnId, order }] };
     const effectiveOps: DataSetOp[] = [...filterOps, ...existingOps, sortOp];
     const effectiveLookup: DataSetLookup = { ...entry.originalLookup, operations: effectiveOps };
 

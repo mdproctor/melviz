@@ -255,6 +255,16 @@ async function loadDashboardInTarget(dashboardPath) {
                 else if (urlStr.includes('/api/v1/query') && isRangeQuery) mockFile = 'prometheus-api-matrix.json';
                 else if (urlStr.includes('/api/v1/query')) mockFile = 'prometheus-api-response.json';
                 const mockResp = await fetch(`${window.location.origin}/mock-data/${mockFile}`);
+                if (mockFile.endsWith('.txt')) {
+                    const text = await mockResp.text();
+                    const varied = text.replace(/(\s)([\d.]+)(\s*$)/gm, (_, pre, num, post) => {
+                        const v = parseFloat(num);
+                        if (isNaN(v) || v === 0) return `${pre}${num}${post}`;
+                        const jitter = v * (0.95 + Math.random() * 0.1);
+                        return `${pre}${Number.isInteger(v) ? Math.round(jitter) : jitter.toFixed(6)}${post}`;
+                    });
+                    return new Response(varied, { headers: { 'content-type': 'text/plain' } });
+                }
                 return mockResp;
             }
         };

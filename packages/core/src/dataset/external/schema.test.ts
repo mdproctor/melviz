@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseExternalDataSetDef } from "./schema.js";
+import { parseRefreshTime } from "./types.js";
 
 const valid = (overrides: Record<string, unknown>) =>
   parseExternalDataSetDef({ uuid: "test-id", url: "https://example.com/api", ...overrides });
@@ -119,5 +120,29 @@ describe("ExternalDataSetDef schema", () => {
     expect(result.columns).toHaveLength(2);
     expect(result.columns![0]!.name).toBeUndefined();
     expect(result.columns![1]!.name).toBe("Column Two");
+  });
+});
+
+describe("parseRefreshTime", () => {
+  it("converts seconds", () => {
+    expect(parseRefreshTime("2second")).toBe(2000);
+    expect(parseRefreshTime("30second")).toBe(30000);
+  });
+
+  it("converts minutes", () => {
+    expect(parseRefreshTime("1minute")).toBe(60000);
+    expect(parseRefreshTime("5minute")).toBe(300000);
+  });
+
+  it("converts milliseconds", () => {
+    expect(parseRefreshTime("500millisecond")).toBe(500);
+  });
+
+  it("converts hours", () => {
+    expect(parseRefreshTime("1hour")).toBe(3600000);
+  });
+
+  it("returns default for invalid input", () => {
+    expect(parseRefreshTime("bogus")).toBe(10000);
   });
 });

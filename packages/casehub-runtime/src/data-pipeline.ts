@@ -2,7 +2,8 @@ import type { DataSetId } from "@casehub/data/dist/dataset/types.js";
 import type { DataSetManager, LookupOptions } from "@casehub/data/dist/dataset/manager.js";
 import type { DataSetLookup } from "@casehub/data/dist/dataset/lookup.js";
 import type { ResolverContext } from "@casehub/data/dist/dataset/external/resolver.js";
-import type { ResolveResult } from "@casehub/data/dist/dataset/external/types.js";
+import type { ResolveResult, ExternalDataSetDef } from "@casehub/data/dist/dataset/external/types.js";
+import { parseRefreshTime } from "@casehub/data/dist/dataset/external/types.js";
 import { resolveExternalDataSet } from "@casehub/data/dist/dataset/external/resolver.js";
 import type { ComponentRegistry } from "./registry.js";
 import type { DataSetScope } from "./dataset-scope.js";
@@ -79,6 +80,10 @@ export function createDataPipeline(
 
       if (manager.has(lookup.dataSetId)) {
         pushData(target, lookup, entry.pagePath, filterGroup?.group);
+
+        // Schedule refresh for datasets already in the manager (from a prior request)
+        const def = resolveDataSetDef(lookup.dataSetId, entry.pagePath, scope);
+        if (def) scheduleRefresh(def, lookup.dataSetId);
         return;
       }
 
@@ -103,6 +108,7 @@ export function createDataPipeline(
         .then(() => {
           pendingResolutions.delete(lookup.dataSetId);
           pushData(target, lookup, entry.pagePath, filterGroup?.group);
+          scheduleRefresh(def, lookup.dataSetId);
         })
         .catch((err: unknown) => {
           pendingResolutions.delete(lookup.dataSetId);
@@ -110,4 +116,29 @@ export function createDataPipeline(
         });
     },
   };
+
+  function scheduleRefresh(def: ExternalDataSetDef, dataSetId: DataSetId): void {
+    if (!def.refreshTime || refreshTimers.has(dataSetId)) return;
+    const interval = parseRefreshTime(def.refreshTime);
+    const timerId = setInterval(() => {
+      if (!resolverCtx) return;
+      resolveExternalDataSet(def, resolverCtx)
+        .then(() => {
+          for (const [id, entry] of registry) {
+            if (entry.originalLookup?.dataSetId === dataSetId && entry.vizElement) {
+              const filterGroup = (entry.component.props as Record<string, unknown> | undefined)
+                ?.filter as { group?: string } | undefined;
+              pushData(
+                entry.vizElement as unknown as VizTarget,
+                entry.originalLookup,
+                entry.pagePath,
+                filterGroup?.group,
+              );
+            }
+          }
+        })
+        .catch(() => {});
+    }, interval);
+    refreshTimers.set(dataSetId, timerId);
+  }
 }

@@ -95,3 +95,22 @@ export interface ResolveResult {
   readonly inferredColumns: boolean;
   readonly source: "url" | "content" | "join";
 }
+
+const TIME_UNITS: Record<string, number> = {
+  millisecond: 1,
+  second: 1000,
+  minute: 60_000,
+  hour: 3_600_000,
+  day: 86_400_000,
+  week: 604_800_000,
+  month: 2_592_000_000,
+  quarter: 7_776_000_000,
+  year: 31_536_000_000,
+};
+
+export function parseRefreshTime(str: string): number {
+  const match = str.match(/^(\d+)(\w+)$/);
+  if (!match) return 10_000;
+  const multiplier = TIME_UNITS[match[2]!];
+  return multiplier !== undefined ? parseInt(match[1]!, 10) * multiplier : 10_000;
+}
